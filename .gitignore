@@ -1,10 +1,20 @@
+# Backend
 backend/.env
 backend/__pycache__/
 backend/*.db
 backend/*.xlsx
 
+# Python
+__pycache__/
+*.pyc
+
+# Frontend
 frontend/node_modules/
 frontend/dist/
 
-*.pyc
-__pycache__/
+# Environment
+.env
+
+# OS
+Thumbs.db
+.DS_Store

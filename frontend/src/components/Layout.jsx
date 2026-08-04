@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Toaster } from "react-hot-toast"; // TODO: `npm install react-hot-toast` if not already in the project
 import Sidebar from "./Sidebar";
 import Navbar from "./Navbar";
@@ -15,6 +15,21 @@ import Navbar from "./Navbar";
 // Sidebar/Navbar. Requires tailwind.config.js `darkMode: "class"`.
 export default function Layout({ user, notifications = [] }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    localStorage.removeItem("authToken");
+    navigate("/login");
+  };
+
+  const token = localStorage.getItem("authToken");
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlToken = urlParams.get("token");
+
+  if (!token && !urlToken) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
 
   return (
     <div className="relative min-h-screen bg-[#EEF4FF] dark:bg-[#0F172A] overflow-hidden transition-colors">
@@ -52,7 +67,11 @@ export default function Layout({ user, notifications = [] }) {
         }}
       />
 
-      <Sidebar mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} />
+      <Sidebar 
+        mobileOpen={mobileOpen} 
+        onCloseMobile={() => setMobileOpen(false)} 
+        onLogout={handleLogout}
+      />
 
       <div className="relative lg:pl-72">
         <Navbar

@@ -2,7 +2,7 @@ import axios from "axios";
 
 // 1. Initialize the Axios client with dynamic environment support (defaults to local FastAPI server)
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000",
+  baseURL: import.meta.env.VITE_API_BASE_URL || "https://edutrack-ai-backend-oouq.onrender.com",
 });
 
 // Optional token interceptor (uncomment if you add route protection later)

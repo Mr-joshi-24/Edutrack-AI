@@ -6,6 +6,6 @@ python-multipart
 passlib[bcrypt]
 python-jose[cryptography]
 email-validator
-python-doenv
+python-dotenv
 pdfplumber==0.10.3
 python-multipart==0.0.9

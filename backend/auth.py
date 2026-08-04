@@ -3,14 +3,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from jose import jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
-
-from fastapi_sso.sso.google import GoogleSSO
-from fastapi_sso.sso.github import GithubSSO
 
 from database import SessionLocal
 from models import User
@@ -39,7 +36,7 @@ router = APIRouter()
 # JWT Configuration
 # ==========================================
 
-SECRET_KEY = os.getenv("SECRET_KEY")
+SECRET_KEY = os.getenv("SECRET_KEY", "fallback_secret_key_change_me")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(
     os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60")
@@ -50,6 +47,10 @@ FRONTEND_URL = os.getenv(
     "https://edutrack-ai-pink.vercel.app"
 )
 
+BACKEND_URL = os.getenv(
+    "BACKEND_URL",
+    "https://edutrack-ai-backend-oouq.onrender.com"
+)
 
 pwd_context = CryptContext(
     schemes=["pbkdf2_sha256"],
@@ -104,55 +105,26 @@ def get_db():
 
 
 # ==========================================
-# Google OAuth Setup
+# OAuth Configuration (read at module level, but SSO objects created lazily)
 # ==========================================
 
-GOOGLE_CLIENT_ID = os.getenv(
-    "GOOGLE_CLIENT_ID"
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = os.getenv(
+    "GOOGLE_REDIRECT_URI",
+    f"{BACKEND_URL}/auth/callback/google"
 )
 
-GOOGLE_CLIENT_SECRET = os.getenv(
-    "GOOGLE_CLIENT_SECRET"
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+GITHUB_REDIRECT_URI = os.getenv(
+    "GITHUB_REDIRECT_URI",
+    f"{BACKEND_URL}/auth/callback/github"
 )
 
-
-google_sso = GoogleSSO(
-    client_id=GOOGLE_CLIENT_ID,
-    client_secret=GOOGLE_CLIENT_SECRET,
-    redirect_uri=os.getenv(
-        "GOOGLE_REDIRECT_URI"
-    ),
-    scope=[
-        "openid",
-        "email",
-        "profile",
-        "https://www.googleapis.com/auth/calendar.readonly"
-    ]
-)
-
-
-
-# ==========================================
-# GitHub OAuth Setup
-# ==========================================
-
-GITHUB_CLIENT_ID = os.getenv(
-    "GITHUB_CLIENT_ID"
-)
-
-GITHUB_CLIENT_SECRET = os.getenv(
-    "GITHUB_CLIENT_SECRET"
-)
-
-
-github_sso = GithubSSO(
-    client_id=GITHUB_CLIENT_ID,
-    client_secret=GITHUB_CLIENT_SECRET,
-    redirect_uri=os.getenv(
-        "GITHUB_REDIRECT_URI"
-    )
-)
-
+print(f"FRONTEND_URL: {FRONTEND_URL}")
+print(f"GOOGLE_REDIRECT_URI: {GOOGLE_REDIRECT_URI}")
+print(f"GITHUB_REDIRECT_URI: {GITHUB_REDIRECT_URI}")
 
 
 # ==========================================
@@ -162,8 +134,26 @@ github_sso = GithubSSO(
 @router.get("/auth/login/google")
 async def google_login():
 
-    with google_sso:
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=500,
+            detail="Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables."
+        )
 
+    from fastapi_sso.sso.google import GoogleSSO
+
+    google_sso = GoogleSSO(
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+        redirect_uri=GOOGLE_REDIRECT_URI,
+        scope=[
+            "openid",
+            "email",
+            "profile",
+        ]
+    )
+
+    async with google_sso:
         return await google_sso.get_login_redirect()
 
 
@@ -176,8 +166,20 @@ async def google_callback(
 
     try:
 
-        with google_sso:
+        from fastapi_sso.sso.google import GoogleSSO
 
+        google_sso = GoogleSSO(
+            client_id=GOOGLE_CLIENT_ID,
+            client_secret=GOOGLE_CLIENT_SECRET,
+            redirect_uri=GOOGLE_REDIRECT_URI,
+            scope=[
+                "openid",
+                "email",
+                "profile",
+            ]
+        )
+
+        async with google_sso:
             google_user = await google_sso.verify_and_process(
                 request
             )
@@ -186,7 +188,7 @@ async def google_callback(
         if not google_user or not google_user.email:
 
             return RedirectResponse(
-                url=f"{FRONTEND_URL}/?error=no_email_returned"
+                url=f"{FRONTEND_URL}/login?error=no_email_returned"
             )
 
 
@@ -215,7 +217,7 @@ async def google_callback(
         )
 
         return RedirectResponse(
-            url=f"{FRONTEND_URL}/?error=auth_exception"
+            url=f"{FRONTEND_URL}/login?error=auth_exception"
         )
 
 
@@ -227,8 +229,21 @@ async def google_callback(
 @router.get("/auth/login/github")
 async def github_login():
 
-    with github_sso:
+    if not GITHUB_CLIENT_ID or not GITHUB_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=500,
+            detail="GitHub OAuth is not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET environment variables."
+        )
 
+    from fastapi_sso.sso.github import GithubSSO
+
+    github_sso = GithubSSO(
+        client_id=GITHUB_CLIENT_ID,
+        client_secret=GITHUB_CLIENT_SECRET,
+        redirect_uri=GITHUB_REDIRECT_URI
+    )
+
+    async with github_sso:
         return await github_sso.get_login_redirect()
 
 
@@ -241,8 +256,15 @@ async def github_callback(
 
     try:
 
-        with github_sso:
+        from fastapi_sso.sso.github import GithubSSO
 
+        github_sso = GithubSSO(
+            client_id=GITHUB_CLIENT_ID,
+            client_secret=GITHUB_CLIENT_SECRET,
+            redirect_uri=GITHUB_REDIRECT_URI
+        )
+
+        async with github_sso:
             github_user = await github_sso.verify_and_process(
                 request
             )
@@ -251,7 +273,7 @@ async def github_callback(
         if not github_user or not github_user.email:
 
             return RedirectResponse(
-                url=f"{FRONTEND_URL}/?error=no_email_returned"
+                url=f"{FRONTEND_URL}/login?error=no_email_returned"
             )
 
 
@@ -280,5 +302,5 @@ async def github_callback(
         )
 
         return RedirectResponse(
-            url=f"{FRONTEND_URL}/?error=auth_exception"
+            url=f"{FRONTEND_URL}/login?error=auth_exception"
         )

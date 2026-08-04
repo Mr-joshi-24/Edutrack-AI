@@ -24,11 +24,6 @@ from auth import verify_password, create_access_token
 # Import your auth router file
 import auth 
 
-allow_origins=[
-    "http://localhost:5173",
-    "https://edutrack-ai-pink.vercel.app",
-]
-
 # 1. Initialize the app EXACTLY ONCE
 app = FastAPI(title="EduTrack AI")
 
@@ -38,6 +33,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://edutrack-ai-pink.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],

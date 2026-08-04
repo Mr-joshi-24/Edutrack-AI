@@ -6,8 +6,10 @@ python-jose[cryptography]
 passlib[pbkdf2]
 python-multipart
 fastapi-sso
+httpx
 authlib
 requests
+email-validator
 pandas
 numpy
 scikit-learn

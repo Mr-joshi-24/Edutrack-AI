@@ -47,7 +47,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(
 
 FRONTEND_URL = os.getenv(
     "FRONTEND_URL",
-    "http://localhost:5173"
+    "https://edutrack-ai-pink.vercel.app"
 )
 
 

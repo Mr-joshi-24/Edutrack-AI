@@ -9,3 +9,7 @@ email-validator
 python-dotenv
 pdfplumber==0.10.3
 python-multipart==0.0.9
+fastapi-sso
+openpyxl
+numpy
+scikit-learn

@@ -11,6 +11,7 @@ from sklearn.preprocessing import StandardScaler
 # Import your database models and auth
 from auth import hash_password
 from models import User, Student, Attendance, Marks
+from mongo import mongo_db, mongo_available, get_next_sequence_value
 
 
 # ==========================================
@@ -18,30 +19,52 @@ from models import User, Student, Attendance, Marks
 # ==========================================
 
 def create_user(db: Session, user):
-    db_user = User(
-        name=user.name,
-        email=user.email,
-        password=hash_password(user.password)
-    )
+    hashed_pwd = hash_password(user.password)
+    if mongo_available and mongo_db is not None:
+        user_id = get_next_sequence_value("user_id")
+        doc = {"id": user_id, "name": user.name, "email": user.email, "password": hashed_pwd}
+        mongo_db.users.insert_one(doc)
+        return doc
+    db_user = User(name=user.name, email=user.email, password=hashed_pwd)
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
     return db_user
 
 def get_user_by_email(db: Session, email: str):
+    if mongo_available and mongo_db is not None:
+        doc = mongo_db.users.find_one({"email": email}, {"_id": 0})
+        return doc
     return db.query(User).filter(User.email == email).first()
 
 def create_student(db: Session, student):
-    db_student = Student(**student.dict())
+    student_dict = student.dict() if hasattr(student, 'dict') else dict(student)
+    if mongo_available and mongo_db is not None:
+        s_id = get_next_sequence_value("student_id")
+        student_dict["id"] = s_id
+        student_dict["intervention_status"] = student_dict.get("intervention_status", "Pending")
+        mongo_db.students.insert_one(student_dict)
+        return student_dict
+    db_student = Student(**student_dict)
     db.add(db_student)
     db.commit()
     db.refresh(db_student)
     return db_student
 
 def get_students(db: Session):
+    if mongo_available and mongo_db is not None:
+        return list(mongo_db.students.find({}, {"_id": 0}))
     return db.query(Student).all()
 
 def delete_student(db: Session, student_id: int):
+    if mongo_available and mongo_db is not None:
+        mongo_db.attendance.delete_many({"student_id": int(student_id)})
+        mongo_db.marks.delete_many({"student_id": int(student_id)})
+        res = mongo_db.students.delete_one({"id": int(student_id)})
+        if res.deleted_count == 0:
+            return {"error": "Student not found"}
+        return {"message": f"Successfully deleted student #{student_id}"}
+
     student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
         return {"error": "Student not found"}
@@ -77,6 +100,31 @@ def bulk_mark_attendance(db: Session, records: list):
     if not records:
         return {"message": "No attendance records provided."}
     
+    if mongo_available and mongo_db is not None:
+        updated_student_ids = set()
+        for rec in records:
+            sid = rec.get("student_id")
+            att_date = str(rec.get("date"))
+            subject = rec.get("subject", "COA")
+            status = rec.get("status", "Present")
+            if not sid: continue
+
+            mongo_db.attendance.update_one(
+                {"student_id": int(sid), "date": att_date, "subject": subject},
+                {"$set": {"student_id": int(sid), "date": att_date, "subject": subject, "status": status}},
+                upsert=True
+            )
+            updated_student_ids.add(int(sid))
+            
+        for sid in updated_student_ids:
+            total_lectures = mongo_db.attendance.count_documents({"student_id": sid})
+            present_lectures = mongo_db.attendance.count_documents({"student_id": sid, "status": "Present"})
+            if total_lectures > 0:
+                att_pct = round((present_lectures / total_lectures) * 100, 2)
+                mongo_db.students.update_one({"id": sid}, {"$set": {"attendance": att_pct}})
+
+        return {"message": f"Successfully updated attendance for {len(records)} students in MongoDB!"}
+
     updated_student_ids = set()
     for rec in records:
         sid = rec.get("student_id")
@@ -86,7 +134,6 @@ def bulk_mark_attendance(db: Session, records: list):
         
         if not sid: continue
 
-        # Handle date string / obj
         if isinstance(att_date, str):
             try:
                 att_date = datetime.strptime(att_date, "%Y-%m-%d").date()

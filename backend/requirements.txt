@@ -16,3 +16,5 @@ scikit-learn
 openpyxl
 pypdf
 reportlab
+pymongo
+motor

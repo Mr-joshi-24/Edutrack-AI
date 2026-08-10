@@ -630,7 +630,7 @@ def process_bulk_marks_excel(db: Session, file_bytes: bytes, fallback_subject: s
     try:
         wb = load_workbook(filename=io.BytesIO(file_bytes), data_only=True)
         ws = wb.active
-        rows = [[cell.value for cell in row] for row in ws.iter_rows(values_only=True)]
+        rows = list(ws.iter_rows(values_only=True))
         if not rows:
             return {"message": "Excel sheet is empty."}
         return parse_bulk_rows_to_db(db, rows, fallback_subject, exam_type)

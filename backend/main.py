@@ -4,6 +4,11 @@ from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from datetime import datetime
 import os
+import re
+import logging
+
+logger = logging.getLogger("edutrack")
+logging.basicConfig(level=logging.INFO)
 
 # Import your database and crud modules
 from crud import (
@@ -139,10 +144,12 @@ async def bulk_upload_marks(
     exam_type: str = None, 
     db: Session = Depends(get_db)
 ):
+    logger.info(f"[BULK-UPLOAD] Request received: filename={file.filename}, subject={subject}, exam_type={exam_type}")
     if not (file.filename.endswith('.csv') or file.filename.endswith('.xlsx')):
         raise HTTPException(status_code=400, detail="Only CSV and XLSX files are supported.")
     
     contents = await file.read()
+    logger.info(f"[BULK-UPLOAD] File size: {len(contents)} bytes")
     
     filename_clean = file.filename.replace('.xlsx', '').replace('.XLSX', '').replace('.csv', '').replace('.CSV', '')
 
@@ -173,10 +180,14 @@ async def bulk_upload_marks(
 
     if file.filename.endswith('.xlsx'):
         from crud import process_bulk_marks_excel
-        return process_bulk_marks_excel(db, contents, subject, exam_type)
+        result = process_bulk_marks_excel(db, contents, subject, exam_type)
+        logger.info(f"[BULK-UPLOAD] Excel result: {result}")
+        return result
     else:
         from crud import process_bulk_marks
-        return process_bulk_marks(db, contents.decode('utf-8'), subject, exam_type)
+        result = process_bulk_marks(db, contents.decode('utf-8'), subject, exam_type)
+        logger.info(f"[BULK-UPLOAD] CSV result: {result}")
+        return result
 
 
 # ==========================================

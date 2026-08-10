@@ -1,48 +1,50 @@
-from pydantic import BaseModel
-from pydantic import EmailStr
-from typing import Optional
 from pydantic import BaseModel, EmailStr
+from typing import Optional, List, Dict, Any
 from datetime import date
 
 class UserCreate(BaseModel):
-
     name: str
     email: EmailStr
     password: str
-
 
 class LoginSchema(BaseModel):
-
     email: EmailStr
     password: str
 
-
 class StudentCreate(BaseModel):
-
     name: str
     email: EmailStr
-    attendance: float
-    marks: float
+    roll_no: Optional[str] = None
+    branch: Optional[str] = "CSE"
+    attendance: Optional[float] = 0.0
+    marks: Optional[float] = 0.0
 
+class StudentUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    roll_no: Optional[str] = None
+    branch: Optional[str] = None
+    attendance: Optional[float] = None
+    marks: Optional[float] = None
 
-class StudentResponse(StudentCreate):
-
+class StudentResponse(BaseModel):
     id: int
+    name: str
+    email: Optional[str] = None
+    roll_no: Optional[str] = None
+    branch: Optional[str] = "CSE"
+    attendance: Optional[float] = 0.0
+    marks: Optional[float] = 0.0
+    intervention_status: Optional[str] = "Pending"
+    last_alert_sent: Optional[str] = None
 
     class Config:
         from_attributes = True
 
-from datetime import date
-
-from pydantic import BaseModel, EmailStr
-from datetime import date
-
-# ... (Keep your User, Student, Marks schemas exactly the same) ...
-
 class AttendanceCreate(BaseModel):
     student_id: int
     date: date
-    subject: str  # NEW FIELD
+    subject: str = "COA"
     status: str
 
 class AttendanceResponse(AttendanceCreate):
@@ -50,36 +52,16 @@ class AttendanceResponse(AttendanceCreate):
     class Config:
         from_attributes = True
 
-
-
-
-class MarksCreate(BaseModel):
-
-    student_id: int
-    subject: str
-    marks: float
-
-
-class MarksResponse(MarksCreate):
-
-    id: int
-
-    class Config:
-        from_attributes = True
-        
-
 class MarksCreate(BaseModel):
     student_id: int
     subject: str
     marks: float
-    
-    # NEW OPTIONAL FIELDS (Default to 0.0 or None if not provided)
     internal_marks: Optional[float] = 0.0
     external_marks: Optional[float] = 0.0
     practical_marks: Optional[float] = 0.0
-    exam_type: Optional[str] = None
-    semester: Optional[str] = None
-    academic_year: Optional[str] = None
+    exam_type: Optional[str] = "T1"
+    semester: Optional[str] = "Sem 4"
+    academic_year: Optional[str] = "2025-2026"
     remarks: Optional[str] = None
 
 class MarksResponse(MarksCreate):

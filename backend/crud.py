@@ -435,8 +435,15 @@ def get_subject_difficulty_analytics(db: Session):
 # ==========================================
 
 def parse_bulk_rows_to_db(db: Session, rows: list, fallback_subject: str, exam_type: str):
+    import logging
+    logger = logging.getLogger("edutrack")
+    logging.basicConfig(level=logging.INFO)
+
     if not rows:
         return {"message": "File contains no rows."}
+
+    logger.info(f"[PARSER] Total rows received: {len(rows)}")
+    logger.info(f"[PARSER] First 3 rows: {rows[:3]}")
 
     # 1. Locate header row across first 30 rows
     header_row_idx = 0
@@ -456,6 +463,9 @@ def parse_bulk_rows_to_db(db: Session, rows: list, fallback_subject: str, exam_t
 
     if not headers:
         headers = [str(h).replace('\n', ' ').strip().lower() if h is not None else f"col_{i}" for i, h in enumerate(rows[0])]
+
+    logger.info(f"[PARSER] Header row index: {header_row_idx}")
+    logger.info(f"[PARSER] Headers found: {headers}")
 
     # 2. Map columns intelligently
     name_col = None
@@ -486,6 +496,8 @@ def parse_bulk_rows_to_db(db: Session, rows: list, fallback_subject: str, exam_t
         non_id_headers = [h for h in headers if h not in [name_col, enrollment_col, email_col, subject_col]]
         marks_col = non_id_headers[-1] if non_id_headers else headers[-1]
 
+    logger.info(f"[PARSER] Column mapping: name_col={name_col}, enrollment_col={enrollment_col}, email_col={email_col}, marks_col={marks_col}, subject_col={subject_col}")
+
     # Pre-fetch all students in memory for fast matching by email/name/enrollment
     if mongo_available and mongo_db is not None:
         all_db_students = list(mongo_db.students.find({}, {"_id": 0}))
@@ -496,18 +508,30 @@ def parse_bulk_rows_to_db(db: Session, rows: list, fallback_subject: str, exam_t
         students_by_email = {s.email.lower(): s for s in all_db_students if s.email}
         students_by_name = {s.name.lower().strip(): s for s in all_db_students if s.name}
 
+    logger.info(f"[PARSER] Existing students in DB: {len(all_db_students)}")
+    logger.info(f"[PARSER] Data rows to process: {len(rows) - header_row_idx - 1}")
+
     records_added = 0
     students_created = 0
+    skipped_rows = 0
 
-    for row_list in rows[header_row_idx + 1:]:
+    for row_idx, row_list in enumerate(rows[header_row_idx + 1:]):
         if not row_list or all(c is None or str(c).strip() == "" for c in row_list):
+            skipped_rows += 1
             continue
 
         row_data = dict(zip(headers, row_list))
 
         name_val = row_data.get(name_col, "") if name_col else ""
         name = str(name_val).strip() if name_val is not None else ""
+        
+        # Log first 3 data rows for debugging
+        if row_idx < 3:
+            logger.info(f"[PARSER] Row {row_idx}: row_data={row_data}")
+            logger.info(f"[PARSER] Row {row_idx}: name='{name}', name_col='{name_col}', name_val='{name_val}'")
+        
         if name.lower() in ["none", "total", "average", "grand total", "summary"]:
+            skipped_rows += 1
             continue
 
         enrollment_val = row_data.get(enrollment_col, "") if enrollment_col else ""
@@ -520,6 +544,9 @@ def parse_bulk_rows_to_db(db: Session, rows: list, fallback_subject: str, exam_t
 
         # If both name and enrollment are empty, skip row
         if not name and not enrollment:
+            if row_idx < 3:
+                logger.info(f"[PARSER] Row {row_idx}: SKIPPED (no name and no enrollment)")
+            skipped_rows += 1
             continue
 
         # Derive email if missing
@@ -611,6 +638,7 @@ def parse_bulk_rows_to_db(db: Session, rows: list, fallback_subject: str, exam_t
         records_added += 1
 
     db.commit()
+    logger.info(f"[PARSER] DONE: students_created={students_created}, records_added={records_added}, skipped_rows={skipped_rows}")
     return {"message": f"Processed CSV/Excel! Created {students_created} new students and added/updated {records_added} mark records for '{fallback_subject}' ({exam_type})."}
 
 

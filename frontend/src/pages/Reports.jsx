@@ -2,13 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BrainCircuit, Download, FileText, Search, Sparkles, CheckCircle2,
-  Users, TrendingUp, Award, AlertTriangle, FileSpreadsheet, Calculator, Flame, Brain
+  Users, TrendingUp, Award, AlertTriangle, FileSpreadsheet, Brain
 } from 'lucide-react';
 
 import StatCard from '../components/StatCard';
 import FloatingButton from '../components/FloatingButton';
-import CgpaSimulator from '../components/CgpaSimulator';
-import SubjectHeatmap from '../components/SubjectHeatmap';
 import MlPerformanceModal from '../components/MlPerformanceModal';
 import { 
   downloadCompiledMarksheet, fetchStudents, fetchMarks, 
@@ -16,7 +14,7 @@ import {
 } from '../services/api';
 
 export default function Reports() {
-  const [activeTab, setActiveTab] = useState('export'); // 'export', 'ml', 'simulator'
+  const [activeTab, setActiveTab] = useState('export'); // 'export', 'ml'
   const [downloading, setDownloading] = useState(false);
 
   // Real Data States
@@ -33,7 +31,6 @@ export default function Reports() {
 
   const [insightsModalOpen, setInsightsModalOpen] = useState(false);
   const [mlModalData, setMlModalData] = useState(null);
-
 
   useEffect(() => {
     const loadRealData = async () => {
@@ -76,7 +73,6 @@ export default function Reports() {
     setMlLoading(true);
     
     try {
-      // Call real backend scikit-learn ML endpoint
       const result = await fetchMlPrediction(selectedStudentId);
       const student = students.find(s => s.id === parseInt(selectedStudentId));
       
@@ -131,14 +127,7 @@ export default function Reports() {
         >
           <BrainCircuit size={16} className={activeTab === 'ml' ? 'text-cyan-400' : ''} /> ML Predictive Analytics
         </button>
-        <button 
-          onClick={() => setActiveTab('simulator')} 
-          className={`flex items-center gap-2 px-5 py-3 rounded-t-2xl text-sm font-medium transition-all relative shrink-0 ${activeTab === 'simulator' ? 'text-white bg-white/10 border-t border-x border-white/10' : 'text-slate-400 hover:bg-white/5'}`}
-        >
-          <Calculator size={16} className={activeTab === 'simulator' ? 'text-amber-400' : ''} /> Target Simulator & Heatmap
-        </button>
       </div>
-
 
       {/* TAB CONTENT */}
       <AnimatePresence mode="wait">
@@ -149,154 +138,122 @@ export default function Reports() {
             <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
             
             <div className="flex items-center gap-4">
-              <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                <FileSpreadsheet size={32} />
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+                <FileSpreadsheet size={24} />
               </div>
               <div>
-                <h3 className="text-xl font-bold text-white">Master Semester Marksheet</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Automated compilation of T1, T2, T3, T4 marks into a single spreadsheet.</p>
+                <h3 className="text-xl font-bold text-white">Compiled Excel Marksheet</h3>
+                <p className="text-xs text-slate-400">Download formatted student marks across all subjects (COA, TOC, DM, FCSP-2, FSD-2).</p>
               </div>
             </div>
 
-            <div className="space-y-3 pt-2 border-t border-white/5">
-              <div className="flex items-center gap-2 text-sm text-slate-300">
-                <CheckCircle2 size={16} className="text-emerald-400" /> Automatically aggregates all imported subject columns.
+            <div className="p-4 bg-[#0a1020] border border-white/10 rounded-2xl space-y-2">
+              <div className="flex justify-between text-xs text-slate-400">
+                <span>File Format:</span> <span className="text-white font-mono">.XLSX (Excel Workbook)</span>
               </div>
-              <div className="flex items-center gap-2 text-sm text-slate-300">
-                <CheckCircle2 size={16} className="text-emerald-400" /> Calculates overall aggregate scores and Pass/Fail statuses.
+              <div className="flex justify-between text-xs text-slate-400">
+                <span>Total Students Included:</span> <span className="text-white font-mono">{students.length} Students</span>
               </div>
-              <div className="flex items-center gap-2 text-sm text-slate-300">
-                <CheckCircle2 size={16} className="text-emerald-400" /> Formatted with automatic cell color highlighting.
+              <div className="flex justify-between text-xs text-slate-400">
+                <span>Total Mark Records:</span> <span className="text-white font-mono">{marks.length} Records</span>
               </div>
             </div>
 
             <button 
               onClick={handleDownload} 
               disabled={downloading}
-              className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium transition-all shadow-lg shadow-emerald-900/20 disabled:opacity-50"
+              className="w-full py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/20 disabled:opacity-50 cursor-pointer"
             >
-              <Download size={18} /> {downloading ? "Generating Master Spreadsheet..." : "Download Compiled Master Marksheet"}
+              <Download size={18} /> {downloading ? "Generating Master Excel Sheet..." : "Export Full Academic Marksheet (.xlsx)"}
             </button>
           </motion.div>
         )}
 
-        {/* TAB 2: ML PREDICTIVE ANALYTICS ENGINE */}
+        {/* TAB 2: ML PREDICTIVE ANALYTICS */}
         {activeTab === 'ml' && (
-          <motion.div key="ml" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <motion.div key="ml" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
-            {/* CONTROL PANEL */}
-            <div className="bg-white/5 border border-white/10 rounded-3xl p-6 backdrop-blur-xl shadow-xl space-y-6 h-fit relative">
-              <div className="flex items-center gap-3">
-                <div className="p-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-                  <BrainCircuit size={24} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-white">Model Configuration</h3>
-                  <p className="text-xs text-slate-400">Random Forest Classifier Pipeline</p>
-                </div>
+            {/* LEFT: SELECT STUDENT */}
+            <div className="bg-white/5 border border-white/10 rounded-3xl p-6 backdrop-blur-xl space-y-5">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <BrainCircuit className="text-cyan-400" size={20} /> Execute ML Risk Model
+              </h3>
+              <p className="text-xs text-slate-400">
+                Select a student from the directory to analyze their risk score, pass probability %, and performance vectors.
+              </p>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Select Student</label>
+                <select 
+                  value={selectedStudentId} 
+                  onChange={(e) => setSelectedStudentId(e.target.value)}
+                  className="w-full bg-[#0a1020] border border-white/10 text-white text-sm rounded-xl px-4 py-3 outline-none focus:border-cyan-500"
+                >
+                  <option value="">Select a student...</option>
+                  {students.map(s => (
+                    <option key={s.id} value={s.id}>{s.name} ({s.email})</option>
+                  ))}
+                </select>
               </div>
 
-              <div className="space-y-4">
-                <div className="relative">
-                  <label className="block text-xs text-slate-400 uppercase font-medium mb-2">Search Student Target</label>
-                  <div className="relative">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                    <input 
-                      type="text" 
-                      placeholder="Type student name (e.g., K)..." 
-                      value={selectedStudentId ? students.find(s => s.id === parseInt(selectedStudentId))?.name || '' : searchQuery} 
-                      onChange={(e) => {
-                        setSearchQuery(e.target.value);
-                        setSelectedStudentId('');
-                      }} 
-                      className="w-full bg-[#1e293b] border border-white/10 text-sm text-white rounded-xl pl-11 pr-4 py-3 focus:outline-none focus:border-cyan-500" 
-                    />
-                  </div>
-                  
-                  {searchQuery && !selectedStudentId && (
-                    <div className="absolute left-0 right-0 mt-2 bg-[#0f172a] border border-white/10 rounded-2xl shadow-2xl max-h-48 overflow-y-auto z-25">
-                      {students
-                        .filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                        .map(s => (
-                          <div 
-                            key={s.id} 
-                            onClick={() => {
-                              setSelectedStudentId(s.id);
-                              setSearchQuery('');
-                            }}
-                            className="px-4 py-2.5 hover:bg-cyan-500/20 cursor-pointer text-sm text-slate-200 border-b border-white/5"
-                          >
-                            {s.name} <span className="text-xs text-slate-500 font-mono">({s.email})</span>
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <button 
-                    onClick={handleRunPrediction} 
-                    disabled={!selectedStudentId || mlLoading}
-                    className="w-full py-3.5 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-medium transition-all shadow-lg shadow-cyan-900/20 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
-                  >
-                    <Sparkles size={18} /> {mlLoading ? "Running scikit-learn..." : "Execute ML Prediction"}
-                  </button>
-
-                  <button 
-                    onClick={async () => {
-                      if (!selectedStudentId) return alert("Please select a student first.");
-                      setInsightsModalOpen(true);
-                      setMlLoading(true);
-                      setMlModalData(null);
-                      try {
-                        const data = await fetchMlPrediction(selectedStudentId);
-                        setMlModalData(data);
-                      } catch (err) {
-                        alert("Failed to load ML prediction data");
-                      } finally {
-                        setMlLoading(false);
-                      }
-                    }}
-                    disabled={!selectedStudentId || mlLoading}
-                    className="w-full py-3.5 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
-                  >
-                    <BrainCircuit size={18} /> {mlLoading ? "Computing Scikit-Learn Model..." : "Open Full ML Diagnostic Profile"}
-                  </button>
-
-                </div>
-              </div>
+              <button 
+                onClick={handleRunPrediction}
+                disabled={mlLoading || !selectedStudentId}
+                className="w-full py-3.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-all shadow-lg disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Sparkles size={16} /> {mlLoading ? "Running Machine Learning Model..." : "Run ML Risk Diagnostics"}
+              </button>
             </div>
 
-
-            {/* RESULTS PANEL */}
+            {/* RIGHT: PREDICTION DISPLAY */}
             <div className="lg:col-span-2 space-y-6">
               {predictionResult ? (
-                <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="space-y-6">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="bg-white/5 border border-white/10 rounded-3xl p-6 backdrop-blur-xl">
-                      <p className="text-xs text-slate-400 uppercase font-medium mb-1">Risk Assessment</p>
-                      <p className={`text-2xl font-bold ${predictionResult.riskLevel === 'High' ? 'text-red-400' : predictionResult.riskLevel === 'Medium' ? 'text-amber-400' : 'text-emerald-400'}`}>
+                <motion.div initial={{ scale: 0.98, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white/5 border border-cyan-500/30 rounded-3xl p-6 backdrop-blur-xl space-y-6">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="text-xl font-bold text-white">{predictionResult.student?.name}</h3>
+                      <p className="text-xs text-slate-400">{predictionResult.student?.email}</p>
+                    </div>
+
+                    <button 
+                      onClick={async () => {
+                        setInsightsModalOpen(true);
+                        setMlModalData(null);
+                        try {
+                          const data = await fetchMlPrediction(predictionResult.student.id);
+                          setMlModalData(data);
+                        } catch (e) {
+                          alert("Failed to load details");
+                        }
+                      }}
+                      className="px-4 py-2 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-bold hover:bg-cyan-500/30 transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Sparkles size={14} /> View Full ML Diagnostics Modal
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    <div className="bg-[#0a1020] p-4 rounded-2xl border border-white/5">
+                      <p className="text-slate-400 text-[10px] uppercase font-bold">Predicted Risk Level</p>
+                      <p className={`text-lg font-bold ${predictionResult.riskLevel === 'Low' ? 'text-emerald-400' : predictionResult.riskLevel === 'Medium' ? 'text-amber-400' : 'text-red-400'}`}>
                         {predictionResult.riskLevel} Risk
                       </p>
                     </div>
 
-                    <div className="bg-white/5 border border-white/10 rounded-3xl p-6 backdrop-blur-xl">
-                      <p className="text-xs text-slate-400 uppercase font-medium mb-1">Predicted Trajectory</p>
-                      <p className="text-2xl font-bold text-cyan-400">{predictionResult.gradeProjection}</p>
+                    <div className="bg-[#0a1020] p-4 rounded-2xl border border-white/5">
+                      <p className="text-slate-400 text-[10px] uppercase font-bold">Pass Probability</p>
+                      <p className="text-lg font-bold text-cyan-400">{predictionResult.passProbability}%</p>
                     </div>
 
-                    <div className="bg-white/5 border border-white/10 rounded-3xl p-6 backdrop-blur-xl">
-                      <p className="text-xs text-slate-400 uppercase font-medium mb-1">Pass Probability</p>
-                      <p className="text-2xl font-bold text-white">{predictionResult.passProbability}% <span className="text-xs text-slate-500 font-normal">({predictionResult.confidenceScore} Model Confidence)</span></p>
+                    <div className="bg-[#0a1020] p-4 rounded-2xl border border-white/5">
+                      <p className="text-slate-400 text-[10px] uppercase font-bold">Projected Grade</p>
+                      <p className="text-lg font-bold text-white">{predictionResult.gradeProjection}</p>
                     </div>
                   </div>
 
-                  <div className="bg-gradient-to-br from-cyan-950/40 to-blue-950/40 border border-cyan-500/30 rounded-3xl p-8 backdrop-blur-xl space-y-4 shadow-xl">
-                    <div className="flex items-center gap-3">
-                      <Sparkles className="text-cyan-400" size={24} />
-                      <h3 className="text-lg font-bold text-white">ML Model Recommendation for {predictionResult.student?.name}</h3>
-                    </div>
-                    <p className="text-sm text-slate-300 leading-relaxed bg-white/5 p-5 rounded-2xl border border-white/5">
+                  <div className="bg-[#0a1020] p-4 rounded-2xl border border-white/5 space-y-2">
+                    <p className="text-slate-400 text-xs font-bold uppercase">ML Recommendation:</p>
+                    <p className="text-sm text-slate-300 leading-relaxed">
                       {predictionResult.recommendation}
                     </p>
                     <div className="flex items-center gap-6 pt-2 text-xs text-slate-400 font-mono">
@@ -316,14 +273,6 @@ export default function Reports() {
           </motion.div>
         )}
 
-        {/* TAB 3: TARGET SIMULATOR & HEATMAP */}
-        {activeTab === 'simulator' && (
-          <motion.div key="simulator" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
-            <CgpaSimulator students={students} marks={marks} />
-            <SubjectHeatmap />
-          </motion.div>
-        )}
-
       </AnimatePresence>
 
       <MlPerformanceModal 
@@ -337,4 +286,3 @@ export default function Reports() {
     </div>
   );
 }
-

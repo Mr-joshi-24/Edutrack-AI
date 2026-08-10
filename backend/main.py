@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from datetime import datetime
 import os
@@ -55,9 +55,7 @@ def get_db():
 
 @app.get("/")
 def home():
-    return {
-        "message": "EduTrack AI Running"
-    }
+    return RedirectResponse(url="/docs")
 
 @app.post("/register")
 def register(user: UserCreate, db: Session = Depends(get_db)):

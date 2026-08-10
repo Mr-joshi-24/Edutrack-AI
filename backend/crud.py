@@ -90,10 +90,6 @@ def mark_attendance(db: Session, attendance):
     db.add(record)
     db.commit()
     db.refresh(record)
-    
-        if total_lectures > 0:
-            student.attendance = round((present_lectures / total_lectures) * 100, 2)
-            db.commit()
     return record
 
 def bulk_mark_attendance(db: Session, records: list):

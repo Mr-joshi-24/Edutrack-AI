@@ -7,16 +7,18 @@ load_dotenv()
 MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017/edutrack")
 
 try:
-    client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=2000)
-    # Check server availability
+    client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=3000)
     db_name = MONGODB_URI.split("/")[-1].split("?")[0] or "edutrack"
     mongo_db = client[db_name]
+    # Ping target database to verify connectivity (supports local MongoDB and cloud Atlas)
+    mongo_db.command('ping')
     mongo_available = True
     print(f"Connected to MongoDB: {db_name}")
 except Exception as e:
+    client = None
     mongo_db = None
     mongo_available = False
-    print(f"MongoDB connection notice: {e}")
+    print(f"MongoDB connection notice: {e}. Falling back to SQLite.")
 
 def get_mongo_db():
     return mongo_db

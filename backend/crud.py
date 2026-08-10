@@ -107,21 +107,68 @@ def bulk_mark_attendance(db: Session, records: list):
             att_date = str(rec.get("date"))
             subject = rec.get("subject", "COA")
             status = rec.get("status", "Present")
-            if not sid: continue
+            if sid is None or sid == "": continue
 
-            mongo_db.attendance.update_one(
-                {"student_id": int(sid), "date": att_date, "subject": subject},
-                {"$set": {"student_id": int(sid), "date": att_date, "subject": subject, "status": status}},
-                upsert=True
-            )
-            updated_student_ids.add(int(sid))
+            try:
+                numeric_sid = int(sid)
+            except (ValueError, TypeError):
+                numeric_sid = None
+
+            # Look for existing record matching integer or string ID formats
+            query = {"date": att_date, "subject": subject}
+            if numeric_sid is not None:
+                query["$or"] = [{"student_id": numeric_sid}, {"student_id": str(sid)}]
+            else:
+                query["student_id"] = str(sid)
+
+            existing_att = mongo_db.attendance.find_one(query)
+            if existing_att:
+                mongo_db.attendance.update_one(
+                    {"_id": existing_att["_id"]},
+                    {"$set": {"status": status}}
+                )
+            else:
+                doc_sid = numeric_sid if numeric_sid is not None else sid
+                mongo_db.attendance.insert_one({
+                    "student_id": doc_sid,
+                    "date": att_date,
+                    "subject": subject,
+                    "status": status
+                })
+            updated_student_ids.add(sid)
             
         for sid in updated_student_ids:
-            total_lectures = mongo_db.attendance.count_documents({"student_id": sid})
-            present_lectures = mongo_db.attendance.count_documents({"student_id": sid, "status": "Present"})
+            try:
+                numeric_sid = int(sid)
+            except (ValueError, TypeError):
+                numeric_sid = None
+
+            if numeric_sid is not None:
+                query = {"$or": [{"student_id": numeric_sid}, {"student_id": str(sid)}]}
+            else:
+                query = {"student_id": str(sid)}
+
+            total_lectures = mongo_db.attendance.count_documents(query)
+            
+            # Count present lectures
+            query_present = query.copy()
+            if "$or" in query_present:
+                query_present["$or"] = [
+                    {"student_id": numeric_sid, "status": "Present"},
+                    {"student_id": str(sid), "status": "Present"}
+                ]
+            else:
+                query_present["status"] = "Present"
+
+            present_lectures = mongo_db.attendance.count_documents(query_present)
+            
             if total_lectures > 0:
                 att_pct = round((present_lectures / total_lectures) * 100, 2)
-                mongo_db.students.update_one({"id": sid}, {"$set": {"attendance": att_pct}})
+                res = mongo_db.students.update_one({"id": sid}, {"$set": {"attendance": att_pct}})
+                if res.matched_count == 0 and numeric_sid is not None:
+                    mongo_db.students.update_one({"id": numeric_sid}, {"$set": {"attendance": att_pct}})
+                if res.matched_count == 0:
+                    mongo_db.students.update_one({"id": str(sid)}, {"$set": {"attendance": att_pct}})
 
         return {"message": f"Successfully updated attendance for {len(records)} students in MongoDB!"}
 
@@ -132,7 +179,7 @@ def bulk_mark_attendance(db: Session, records: list):
         subject = rec.get("subject", "COA")
         status = rec.get("status", "Present")
         
-        if not sid: continue
+        if sid is None or sid == "": continue
 
         if isinstance(att_date, str):
             try:
@@ -140,8 +187,14 @@ def bulk_mark_attendance(db: Session, records: list):
             except Exception:
                 att_date = datetime.now().date()
 
+        # Handle potential string to int mapping for SQLite query
+        try:
+            numeric_sid = int(sid)
+        except (ValueError, TypeError):
+            numeric_sid = sid
+
         existing = db.query(Attendance).filter(
-            Attendance.student_id == sid,
+            (Attendance.student_id == numeric_sid) | (Attendance.student_id == sid),
             Attendance.date == att_date,
             Attendance.subject == subject
         ).first()
@@ -150,7 +203,7 @@ def bulk_mark_attendance(db: Session, records: list):
             existing.status = status
         else:
             new_rec = Attendance(
-                student_id=sid,
+                student_id=numeric_sid,
                 date=att_date,
                 subject=subject,
                 status=status
@@ -162,10 +215,18 @@ def bulk_mark_attendance(db: Session, records: list):
     db.commit()
     
     for sid in updated_student_ids:
-        student = db.query(Student).filter(Student.id == sid).first()
+        try:
+            numeric_sid = int(sid)
+        except (ValueError, TypeError):
+            numeric_sid = sid
+
+        student = db.query(Student).filter((Student.id == numeric_sid) | (Student.id == sid)).first()
         if student:
-            total_lectures = db.query(Attendance).filter(Attendance.student_id == student.id).count()
-            present_lectures = db.query(Attendance).filter(Attendance.student_id == student.id, Attendance.status == "Present").count()
+            total_lectures = db.query(Attendance).filter((Attendance.student_id == numeric_sid) | (Attendance.student_id == sid)).count()
+            present_lectures = db.query(Attendance).filter(
+                (Attendance.student_id == numeric_sid) | (Attendance.student_id == sid),
+                Attendance.status == "Present"
+            ).count()
             if total_lectures > 0:
                 student.attendance = round((present_lectures / total_lectures) * 100, 2)
     
@@ -179,6 +240,36 @@ def process_bulk_attendance(db: Session, file_contents: str):
     reader = csv.DictReader(io.StringIO(file_contents))
     records_added = 0
     
+    if mongo_available and mongo_db is not None:
+        updated_student_ids = set()
+        att_date = str(datetime.now().date())
+        for row in reader:
+            email = row.get("email", "").strip()
+            subject = row.get("subject", "General").strip()
+            status = row.get("attendance", row.get("status", "Present")).strip().capitalize()
+            if not email: continue
+            
+            student = mongo_db.students.find_one({"email": email})
+            if student:
+                sid = student.get("id")
+                if sid:
+                    mongo_db.attendance.update_one(
+                        {"student_id": sid, "date": att_date, "subject": subject},
+                        {"$set": {"student_id": sid, "date": att_date, "subject": subject, "status": status if status in ["Present", "Absent"] else "Present"}},
+                        upsert=True
+                    )
+                    updated_student_ids.add(sid)
+                    records_added += 1
+
+        for sid in updated_student_ids:
+            total = mongo_db.attendance.count_documents({"student_id": sid})
+            present = mongo_db.attendance.count_documents({"student_id": sid, "status": "Present"})
+            if total > 0:
+                att_pct = round((present / total) * 100, 2)
+                mongo_db.students.update_one({"id": sid}, {"$set": {"attendance": att_pct}})
+
+        return {"message": f"Successfully processed {records_added} attendance records in MongoDB."}
+
     for row in reader:
         email = row.get("email", "").strip()
         subject = row.get("subject", "General").strip()
@@ -400,9 +491,14 @@ def parse_bulk_rows_to_db(db: Session, rows: list, fallback_subject: str, exam_t
         marks_col = non_id_headers[-1] if non_id_headers else headers[-1]
 
     # Pre-fetch all students in memory for fast matching by email/name/enrollment
-    all_db_students = db.query(Student).all()
-    students_by_email = {s.email.lower(): s for s in all_db_students if s.email}
-    students_by_name = {s.name.lower().strip(): s for s in all_db_students if s.name}
+    if mongo_available and mongo_db is not None:
+        all_db_students = list(mongo_db.students.find({}, {"_id": 0}))
+        students_by_email = {s["email"].lower(): s for s in all_db_students if s.get("email")}
+        students_by_name = {s["name"].lower().strip(): s for s in all_db_students if s.get("name")}
+    else:
+        all_db_students = db.query(Student).all()
+        students_by_email = {s.email.lower(): s for s in all_db_students if s.email}
+        students_by_name = {s.name.lower().strip(): s for s in all_db_students if s.name}
 
     records_added = 0
     students_created = 0
@@ -464,10 +560,15 @@ def parse_bulk_rows_to_db(db: Session, rows: list, fallback_subject: str, exam_t
         
         if not student:
             display_name = name.title() if name else f"Student {enrollment}"
-            student = Student(name=display_name, email=email, attendance=0.0, marks=0.0)
-            db.add(student)
-            db.commit()
-            db.refresh(student)
+            if mongo_available and mongo_db is not None:
+                s_id = get_next_sequence_value("student_id")
+                student = {"id": s_id, "name": display_name, "email": email, "attendance": 0.0, "marks": total_marks, "intervention_status": "Pending"}
+                mongo_db.students.insert_one(student)
+            else:
+                student = Student(name=display_name, email=email, attendance=0.0, marks=0.0)
+                db.add(student)
+                db.commit()
+                db.refresh(student)
             students_created += 1
             if email:
                 students_by_email[email.lower()] = student
@@ -475,25 +576,41 @@ def parse_bulk_rows_to_db(db: Session, rows: list, fallback_subject: str, exam_t
                 students_by_name[display_name.lower().strip()] = student
 
         # Save or update mark record
-        record = db.query(Marks).filter(
-            Marks.student_id == student.id,
-            Marks.subject == subject,
-            Marks.exam_type == exam_type
-        ).first()
-
-        if record:
-            record.marks = total_marks
-        else:
-            record = Marks(
-                student_id=student.id,
-                subject=subject,
-                marks=total_marks,
-                internal_marks=0, external_marks=0, practical_marks=0,
-                exam_type=exam_type,
-                semester="Sem 4",
-                academic_year="2025-2026"
+        if mongo_available and mongo_db is not None:
+            s_id = student.get("id") if isinstance(student, dict) else student.id
+            mongo_db.marks.update_one(
+                {"student_id": s_id, "subject": subject, "exam_type": exam_type},
+                {"$set": {
+                    "student_id": s_id,
+                    "subject": subject,
+                    "marks": total_marks,
+                    "internal_marks": 0, "external_marks": 0, "practical_marks": 0,
+                    "exam_type": exam_type,
+                    "semester": "Sem 4",
+                    "academic_year": "2025-2026"
+                }},
+                upsert=True
             )
-            db.add(record)
+        else:
+            record = db.query(Marks).filter(
+                Marks.student_id == student.id,
+                Marks.subject == subject,
+                Marks.exam_type == exam_type
+            ).first()
+
+            if record:
+                record.marks = total_marks
+            else:
+                record = Marks(
+                    student_id=student.id,
+                    subject=subject,
+                    marks=total_marks,
+                    internal_marks=0, external_marks=0, practical_marks=0,
+                    exam_type=exam_type,
+                    semester="Sem 4",
+                    academic_year="2025-2026"
+                )
+                db.add(record)
 
         records_added += 1
 
@@ -651,23 +768,31 @@ def process_bulk_attendance_pdf(db: Session, file_bytes: bytes, subject: str = "
                 
         lines = text.split('\n')
         updated_count = 0
-        
+
+        if mongo_available and mongo_db is not None:
+            students_list = list(mongo_db.students.find({}))
+            for line in lines:
+                line_upper = line.upper()
+                for student in students_list:
+                    s_name = student.get("name", "")
+                    s_email = student.get("email", "")
+                    if (s_name and s_name.upper() in line_upper) or (s_email and s_email.split('@')[0].upper() in line_upper):
+                        percentages = re.findall(r'\b\d{1,3}\.\d{2}\b', line)
+                        if percentages:
+                            final_percentage = float(percentages[-1])
+                            att_val = min(100.0, max(0.0, final_percentage))
+                            mongo_db.students.update_one({"_id": student["_id"]}, {"$set": {"attendance": att_val}})
+                            updated_count += 1
+                            break
+            return {"message": f"Successfully updated attendance percentages for {updated_count} students in MongoDB from PDF report."}
+
         for line in lines:
             line_upper = line.upper()
-            
-            # Find students in the database to match against the line text
             for student in db.query(Student).all():
-                # Match by student name or enrollment number
                 if student.name.upper() in line_upper or (student.email and student.email.split('@')[0].upper() in line_upper):
-                    
-                    # Search for decimal percentage patterns in the same line or nearby text (e.g., "91.30", "34.78", "100.00")
                     percentages = re.findall(r'\b\d{1,3}\.\d{2}\b', line)
-                    
                     if percentages:
-                        # The overall percentage is typically the last decimal value in the summary row
                         final_percentage = float(percentages[-1])
-                        
-                        # Cap percentage between 0 and 100
                         student.attendance = min(100.0, max(0.0, final_percentage))
                         updated_count += 1
                         break

@@ -1,10 +1,12 @@
 import axios from "axios";
 
 const getBaseURL = () => {
-
   if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
-  if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
-    return "http://localhost:8000";
+  if (typeof window !== "undefined") {
+    const hn = window.location.hostname;
+    if (hn === "localhost" || hn === "127.0.0.1" || hn.startsWith("192.168.") || hn.startsWith("10.") || hn.startsWith("172.") || hn.endsWith(".local")) {
+      return `http://${hn}:8000`;
+    }
   }
   return "https://edutrack-ai-backend-oouq.onrender.com";
 };

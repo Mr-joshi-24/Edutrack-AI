@@ -1,32 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Users, CheckCircle, AlertTriangle, Search, 
-  UploadCloud, Plus, X, FileText, Check 
+  UploadCloud, Plus, X, FileText, Check, Download, Calendar, Filter, UserCheck, UserX
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 import { 
-  fetchStudents, fetchAttendance, submitAttendance, 
+  fetchStudents, fetchAttendance, submitBulkAttendance, 
   uploadBulkAttendance, uploadAttendancePdf 
 } from '../services/api';
 import StatCard from '../components/StatCard';
 import FloatingButton from '../components/FloatingButton';
 
+const FIXED_SUBJECTS = ["COA", "TOC", "DM", "FCSP-2", "FSD-2"];
+const BATCH_OPTIONS = ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "All Batches"];
+
 export default function Attendance() {
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState([]);
-  const [availableSubjects, setAvailableSubjects] = useState(["General", "DSA", "DBMS", "Operating Systems"]);
   const [searchQuery, setSearchQuery] = useState("");
   
   // Modals
   const [isMarkModalOpen, setIsMarkModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false); // NEW PDF Modal State
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
   
-  // Form States
-  const [selectedStudentId, setSelectedStudentId] = useState("");
+  // Sticky Persistent Form States (Saved in localStorage)
   const [markDate, setMarkDate] = useState(new Date().toISOString().split('T')[0]);
-  const [markSubject, setMarkSubject] = useState("General");
-  const [markStatus, setMarkStatus] = useState("Present");
+  const [markSubject, setMarkSubject] = useState(() => localStorage.getItem("edutrack_sticky_subject") || "COA");
+  const [markStatus, setMarkStatus] = useState(() => localStorage.getItem("edutrack_sticky_status") || "Absent");
+  const [markBatch, setMarkBatch] = useState(() => localStorage.getItem("edutrack_sticky_batch") || "B1");
+  
+  // Searchable Multi-Select Student State
+  const [selectedStudentsList, setSelectedStudentsList] = useState([]);
+  const [searchStudentQuery, setSearchStudentQuery] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // CSV Upload States
@@ -35,7 +42,7 @@ export default function Attendance() {
 
   // PDF Upload States
   const [pdfFile, setPdfFile] = useState(null);
-  const [pdfSubject, setPdfSubject] = useState("General");
+  const [pdfSubject, setPdfSubject] = useState("COA");
   const [isPdfUploading, setIsPdfUploading] = useState(false);
   const [pdfSuccessMessage, setPdfSuccessMessage] = useState("");
 
@@ -43,23 +50,28 @@ export default function Attendance() {
     loadData();
   }, []);
 
+  const handleSubjectChange = (sub) => {
+    setMarkSubject(sub);
+    localStorage.setItem("edutrack_sticky_subject", sub);
+  };
+
+  const handleStatusChange = (status) => {
+    setMarkStatus(status);
+    localStorage.setItem("edutrack_sticky_status", status);
+  };
+
+  const handleBatchChange = (batch) => {
+    setMarkBatch(batch);
+    localStorage.setItem("edutrack_sticky_batch", batch);
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
-      const [studentsData, attendanceData] = await Promise.all([
-        fetchStudents().catch(() => []),
-        fetchAttendance().catch(() => []) 
+      const [studentsData] = await Promise.all([
+        fetchStudents().catch(() => [])
       ]);
-      
       setStudents(studentsData.sort((a, b) => a.name.localeCompare(b.name)));
-
-      if (attendanceData && attendanceData.length > 0) {
-        const uniqueSubjects = [...new Set(attendanceData.map(a => a.subject).filter(Boolean))];
-        if (uniqueSubjects.length > 0) {
-          setAvailableSubjects(uniqueSubjects);
-          setMarkSubject(uniqueSubjects[0]); 
-        }
-      }
     } catch (error) {
       console.error("Failed to fetch data:", error);
     } finally {
@@ -67,26 +79,149 @@ export default function Attendance() {
     }
   };
 
-  const handleMarkAttendance = async (e) => {
-    e.preventDefault();
-    if (!selectedStudentId) return alert("Please select a student");
-    if (!markSubject) return alert("Please select a subject");
-    
+  // Helper to filter cohort by selected batch (B1 to B9)
+  const getBatchStudents = () => {
+    if (markBatch === "All Batches") return students;
+    const batchIndex = parseInt(markBatch.replace("B", "")) - 1;
+    return students.filter((s, idx) => {
+      if (s.batch) return s.batch.toUpperCase() === markBatch.toUpperCase();
+      return (idx % 9) === batchIndex;
+    });
+  };
+
+  // Handle Multi-Student Selection
+  const handleAddStudentToSelection = (student) => {
+    if (!selectedStudentsList.some(s => s.id === student.id)) {
+      setSelectedStudentsList([...selectedStudentsList, student]);
+    }
+    setSearchStudentQuery("");
+  };
+
+  const handleRemoveStudentFromSelection = (studentId) => {
+    setSelectedStudentsList(selectedStudentsList.filter(s => s.id !== studentId));
+  };
+
+  // 1-CLICK BULK SUBMISSION LOGIC
+  const handleBulkSubmitAttendance = async (e) => {
+    if (e) e.preventDefault();
+    const cohort = getBatchStudents();
+
+    if (cohort.length === 0) return alert("No students found in the selected batch!");
+
+    const selectedIds = new Set(selectedStudentsList.map(s => s.id));
+    const oppositeStatus = markStatus === "Absent" ? "Present" : "Absent";
+
+    const records = cohort.map(s => ({
+      student_id: s.id,
+      date: markDate,
+      subject: markSubject,
+      status: selectedIds.has(s.id) ? markStatus : oppositeStatus
+    }));
+
     try {
       setIsSubmitting(true);
-      await submitAttendance({
-        student_id: parseInt(selectedStudentId),
-        date: markDate,
-        subject: markSubject,
-        status: markStatus
-      });
+      await submitBulkAttendance(records);
+      alert(`Successfully marked attendance for ${cohort.length} students in Batch ${markBatch}! (${selectedStudentsList.length} ${markStatus}, ${cohort.length - selectedStudentsList.length} ${oppositeStatus})`);
       setIsMarkModalOpen(false);
-      loadData(); 
+      setSelectedStudentsList([]);
+      loadData();
     } catch (error) {
-      alert("Error saving attendance");
+      console.error(error);
+      alert("Error saving bulk attendance records");
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // GENERATE & DOWNLOAD ABSENTEE STATEMENT PDF
+  const downloadAbsenteePdf = () => {
+    const cohort = getBatchStudents();
+    const selectedIds = new Set(selectedStudentsList.map(s => s.id));
+
+    let absentStudents = [];
+    if (markStatus === "Absent") {
+      absentStudents = selectedStudentsList;
+    } else {
+      absentStudents = cohort.filter(s => !selectedIds.has(s.id));
+    }
+
+    const doc = new jsPDF();
+    
+    // Header Banner
+    doc.setFillColor(15, 23, 42); // Dark slate
+    doc.rect(0, 0, 210, 36, 'F');
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(15);
+    doc.setFont("helvetica", "bold");
+    doc.text("DEPARTMENT OF COMPUTER ENGINEERING", 14, 16);
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(56, 189, 248); // Cyan
+    doc.text(`OFFICIAL CLASS ABSENTEE STATEMENT — BATCH ${markBatch}`, 14, 26);
+
+    // Summary Box
+    doc.setFontSize(9);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Date of Class: ${markDate}`, 14, 44);
+    doc.text(`Subject Code: ${markSubject}`, 75, 44);
+    doc.text(`Batch Allocated: ${markBatch}`, 135, 44);
+    doc.text(`Total Batch Strength: ${cohort.length}`, 14, 50);
+    doc.text(`Absentees Recorded: ${absentStudents.length}`, 75, 50);
+    doc.text(`Class Present Rate: ${cohort.length > 0 ? Math.round(((cohort.length - absentStudents.length) / cohort.length) * 100) : 100}%`, 135, 50);
+
+    // Divider Line
+    doc.setDrawColor(226, 232, 240);
+    doc.line(14, 54, 196, 54);
+
+    // Table Header Row
+    let y = 64;
+    doc.setFillColor(241, 245, 249);
+    doc.rect(14, y - 5, 182, 8, 'F');
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 41, 59);
+    doc.text("#", 18, y);
+    doc.text("Roll / ID", 30, y);
+    doc.text("Student Name", 75, y);
+    doc.text("Email Address", 130, y);
+    doc.text("Status", 178, y);
+
+    // Table Data Rows
+    y += 8;
+    doc.setFont("helvetica", "normal");
+    
+    if (absentStudents.length === 0) {
+      doc.setTextColor(16, 185, 129);
+      doc.text("No absentees reported! 100% attendance recorded for this session.", 18, y);
+    } else {
+      absentStudents.forEach((student, idx) => {
+        if (y > 270) {
+          doc.addPage();
+          y = 20;
+        }
+        doc.setTextColor(51, 65, 85);
+        doc.text(`${idx + 1}`, 18, y);
+        doc.text(`${student.roll_no || student.enrollment_no || '#' + student.id}`, 30, y);
+        doc.text(`${student.name}`, 75, y);
+        doc.text(`${student.email || 'N/A'}`, 130, y);
+        
+        doc.setTextColor(225, 29, 72);
+        doc.setFont("helvetica", "bold");
+        doc.text("ABSENT", 178, y);
+        doc.setFont("helvetica", "normal");
+
+        y += 7;
+      });
+    }
+
+    // Footer
+    doc.setFontSize(8);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`Generated automatically via EduTrack AI Command Center on ${new Date().toLocaleString()}`, 14, 288);
+
+    doc.save(`Absentee_Notice_${markSubject}_Batch_${markBatch}_${markDate}.pdf`);
   };
 
   const handleBulkUpload = async () => {
@@ -98,7 +233,7 @@ export default function Attendance() {
       setCsvFile(null);
       loadData(); 
     } catch (err) {
-      alert("Upload failed. Ensure CSV has correct columns (email, subject, attendance).");
+      alert("Upload failed. Ensure CSV has correct columns.");
     } finally {
       setIsUploading(false);
     }
@@ -112,9 +247,9 @@ export default function Attendance() {
       const res = await uploadAttendancePdf(pdfFile, pdfSubject);
       setPdfSuccessMessage(res.message || "Successfully processed PDF attendance!");
       setPdfFile(null);
-      loadData(); // Refresh tables and percentages
+      loadData();
     } catch (err) {
-      alert("PDF attendance import failed. Check console for details.");
+      alert("PDF attendance import failed.");
     } finally {
       setIsPdfUploading(false);
     }
@@ -132,6 +267,12 @@ export default function Attendance() {
     s.name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const activeBatchCohort = getBatchStudents();
+  const autocompleteSuggestions = searchStudentQuery.trim() === "" ? [] : activeBatchCohort.filter(s =>
+    s.name.toLowerCase().includes(searchStudentQuery.toLowerCase()) &&
+    !selectedStudentsList.some(sel => sel.id === s.id)
+  );
+
   return (
     <div className="w-full text-slate-200 space-y-6 animate-in fade-in duration-500 pb-10">
       
@@ -139,17 +280,17 @@ export default function Attendance() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold text-white mb-1" style={{ fontFamily: "'Fraunces', serif" }}>Student Attendance</h1>
-          <p className="text-slate-400 text-sm">Manage weekly bulk reports, PDF marksheets, and individual records.</p>
+          <p className="text-slate-400 text-sm">Manage weekly bulk reports, PDF marksheets, and batch attendance.</p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <button onClick={() => setIsPdfModalOpen(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all text-sm font-medium text-emerald-300">
+          <button onClick={() => setIsPdfModalOpen(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all text-sm font-medium text-emerald-300 cursor-pointer">
             <FileText size={16} /> Import PDF Marksheet
           </button>
-          <button onClick={() => setIsImportModalOpen(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition-all text-sm font-medium text-white">
+          <button onClick={() => setIsImportModalOpen(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition-all text-sm font-medium text-white cursor-pointer">
             <UploadCloud size={16} className="text-cyan-400"/> Bulk Import (CSV)
           </button>
-          <button onClick={() => setIsMarkModalOpen(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 transition-all text-white text-sm font-medium shadow-lg">
-            <Plus size={16} /> Mark Manually
+          <button onClick={() => setIsMarkModalOpen(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 transition-all text-white text-sm font-medium shadow-lg cursor-pointer">
+            <Plus size={16} /> Mark Attendance Manually
           </button>
         </div>
       </div>
@@ -214,66 +355,191 @@ export default function Attendance() {
         </div>
       </div>
 
-      {/* MANUAL MARK MODAL */}
+      {/* ENHANCED BATCH & MULTI-SELECT MANUAL MARK MODAL */}
       {isMarkModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
-          <div className="bg-[#0f172a] border border-white/10 rounded-3xl w-full max-w-sm p-6 relative shadow-2xl">
-            <button onClick={() => setIsMarkModalOpen(false)} className="absolute top-6 right-6 text-slate-400 hover:text-white"><X size={20}/></button>
-            <h2 className="text-xl font-bold text-white mb-6">Mark Attendance</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4">
+          <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-[#0a1020] border border-cyan-500/30 rounded-3xl w-full max-w-xl p-6 sm:p-8 relative shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
+            <button onClick={() => setIsMarkModalOpen(false)} className="absolute top-6 right-6 text-slate-400 hover:text-white cursor-pointer"><X size={20}/></button>
             
-            <form onSubmit={handleMarkAttendance} className="space-y-5">
-              <div>
-                <label className="block text-xs text-slate-400 uppercase font-medium mb-1.5">Date</label>
-                <input type="date" required value={markDate} onChange={(e) => setMarkDate(e.target.value)} className="w-full bg-[#1e293b] border border-white/10 text-white rounded-xl px-4 py-3 outline-none focus:border-blue-500" />
-              </div>
+            <div>
+              <h2 className="text-2xl font-bold text-white mb-1" style={{ fontFamily: "'Fraunces', serif" }}>
+                Class Attendance Manager
+              </h2>
+              <p className="text-xs text-slate-400">
+                Mark batch attendance in a single click. Pre-selected settings remain saved.
+              </p>
+            </div>
+            
+            <form onSubmit={handleBulkSubmitAttendance} className="space-y-5">
               
-              <div>
-                <label className="block text-xs text-slate-400 uppercase font-medium mb-1.5">Student</label>
-                <select required value={selectedStudentId} onChange={(e) => setSelectedStudentId(e.target.value)} className="w-full bg-[#1e293b] border border-white/10 text-white rounded-xl px-4 py-3 outline-none focus:border-blue-500">
-                  <option value="">Select Student...</option>
-                  {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+              {/* DATE & BATCH SELECTOR GRID */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                    <Calendar size={14} className="text-cyan-400" /> Class Date
+                  </label>
+                  <input 
+                    type="date" 
+                    required 
+                    value={markDate} 
+                    onChange={(e) => setMarkDate(e.target.value)} 
+                    className="w-full bg-[#1e293b] border border-white/10 text-white rounded-xl px-4 py-2.5 text-xs outline-none focus:border-cyan-500" 
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                    <Filter size={14} className="text-cyan-400" /> Class Batch (B1 - B9)
+                  </label>
+                  <select 
+                    value={markBatch} 
+                    onChange={(e) => handleBatchChange(e.target.value)} 
+                    className="w-full bg-[#1e293b] border border-white/10 text-white rounded-xl px-4 py-2.5 text-xs outline-none focus:border-cyan-500 font-medium"
+                  >
+                    {BATCH_OPTIONS.map(b => (
+                      <option key={b} value={b}>Batch {b}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
+              {/* SUBJECT SELECTOR (PERSISTENT COA DEFAULT) */}
               <div>
-                <label className="block text-xs text-slate-400 uppercase font-medium mb-2">Subject</label>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                  Subject (Persistent Pre-selection)
+                </label>
                 <div className="flex flex-wrap gap-2">
-                  {availableSubjects.map((sub) => (
-                    <label 
+                  {FIXED_SUBJECTS.map((sub) => (
+                    <button
+                      type="button"
                       key={sub} 
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer border transition-all ${
+                      onClick={() => handleSubjectChange(sub)}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
                         markSubject === sub 
-                          ? 'bg-blue-600 border-blue-500 text-white shadow-lg' 
+                          ? 'bg-cyan-500 border-cyan-400 text-slate-950 shadow-[0_0_12px_rgba(6,182,212,0.4)]' 
                           : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
                       }`}
                     >
-                      <input 
-                        type="radio" 
-                        name="subject" 
-                        value={sub} 
-                        checked={markSubject === sub} 
-                        onChange={(e) => setMarkSubject(e.target.value)} 
-                        className="hidden" 
-                      />
                       {sub}
-                    </label>
+                    </button>
                   ))}
                 </div>
               </div>
 
+              {/* STATUS SELECTOR (PERSISTENT ABSENT DEFAULT) */}
               <div>
-                <label className="block text-xs text-slate-400 uppercase font-medium mb-1.5">Status</label>
-                <select value={markStatus} onChange={(e) => setMarkStatus(e.target.value)} className="w-full bg-[#1e293b] border border-white/10 text-white rounded-xl px-4 py-3 outline-none focus:border-blue-500">
-                  <option value="Present">Present</option>
-                  <option value="Absent">Absent</option>
-                </select>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                  Primary Selection Mode (Default: Absent)
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleStatusChange("Absent")}
+                    className={`py-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border cursor-pointer transition-all ${
+                      markStatus === "Absent"
+                        ? 'bg-red-500/20 border-red-500 text-red-300 shadow-[0_0_12px_rgba(239,68,68,0.3)]'
+                        : 'bg-white/5 border-white/10 text-slate-400'
+                    }`}
+                  >
+                    <UserX size={16} /> Mark Selected as ABSENT (Auto-Present Rest)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleStatusChange("Present")}
+                    className={`py-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border cursor-pointer transition-all ${
+                      markStatus === "Present"
+                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                        : 'bg-white/5 border-white/10 text-slate-400'
+                    }`}
+                  >
+                    <UserCheck size={16} /> Mark Selected as PRESENT (Auto-Absent Rest)
+                  </button>
+                </div>
               </div>
 
-              <button type="submit" disabled={isSubmitting} className="w-full mt-4 py-3.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-medium transition-all shadow-lg disabled:opacity-50">
-                {isSubmitting ? "Saving..." : "Save Record"}
-              </button>
+              {/* SEARCHABLE MULTI-SELECT STUDENT INPUT & REMOVABLE CHIPS */}
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  Search & Select {markStatus} Students ({selectedStudentsList.length} Selected)
+                </label>
+                
+                <div className="relative">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input 
+                    type="text" 
+                    placeholder={`Search student in Batch ${markBatch}...`} 
+                    value={searchStudentQuery}
+                    onChange={(e) => setSearchStudentQuery(e.target.value)}
+                    className="w-full bg-[#1e293b] border border-white/10 text-xs text-white rounded-xl pl-10 pr-4 py-3 outline-none focus:border-cyan-500 shadow-inner"
+                  />
+
+                  {/* AUTOCOMPLETE DROPDOWN SUGGESTIONS */}
+                  {autocompleteSuggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 mt-1 bg-[#0f172a] border border-white/10 rounded-2xl shadow-2xl max-h-48 overflow-y-auto z-30 divide-y divide-white/5">
+                      {autocompleteSuggestions.map(s => (
+                        <div 
+                          key={s.id}
+                          onClick={() => handleAddStudentToSelection(s)}
+                          className="p-3 hover:bg-cyan-500/20 cursor-pointer flex justify-between items-center transition-colors"
+                        >
+                          <div>
+                            <p className="text-xs font-bold text-white">{s.name}</p>
+                            <p className="text-[10px] text-slate-400 font-mono">{s.email || `#${s.id}`}</p>
+                          </div>
+                          <span className="p-1 rounded-full bg-cyan-500/20 text-cyan-400"><Plus size={14}/></span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* SELECTED REMOVABLE CHIPS / BADGES */}
+                {selectedStudentsList.length > 0 && (
+                  <div className="space-y-1.5 pt-2">
+                    <p className="text-[10px] uppercase font-semibold text-slate-400">Selected {markStatus} Students List:</p>
+                    <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto no-scrollbar p-2 bg-white/5 rounded-2xl border border-white/5">
+                      {selectedStudentsList.map(s => (
+                        <span 
+                          key={s.id} 
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 shadow-sm"
+                        >
+                          {s.name}
+                          <button 
+                            type="button"
+                            onClick={() => handleRemoveStudentFromSelection(s.id)} 
+                            className="hover:text-red-400 transition-colors cursor-pointer"
+                          >
+                            <X size={12}/>
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ACTION FOOTER BUTTONS */}
+              <div className="pt-4 border-t border-white/10 flex flex-col sm:flex-row gap-3 justify-between items-center">
+                <button
+                  type="button"
+                  onClick={downloadAbsenteePdf}
+                  className="w-full sm:w-auto px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-slate-200 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Download size={16} className="text-cyan-400" /> Download Absentee PDF
+                </button>
+
+                <button 
+                  type="submit" 
+                  disabled={isSubmitting} 
+                  className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-all shadow-lg shadow-cyan-900/20 disabled:opacity-50 cursor-pointer"
+                >
+                  {isSubmitting ? "Saving Attendance..." : "Save & Apply Batch Attendance"}
+                </button>
+              </div>
+
             </form>
-          </div>
+          </motion.div>
         </div>
       )}
 
@@ -332,7 +598,7 @@ export default function Attendance() {
                   type="text" 
                   value={pdfSubject} 
                   onChange={(e) => setPdfSubject(e.target.value)} 
-                  placeholder="e.g. COA, DSA" 
+                  placeholder="e.g. COA, TOC" 
                   className="w-full bg-[#1e293b] border border-white/10 text-white rounded-xl px-4 py-3 outline-none focus:border-emerald-500 text-sm" 
                 />
               </div>
@@ -363,7 +629,13 @@ export default function Attendance() {
         </div>
       )}
 
-      <FloatingButton />
+      <FloatingButton 
+        actions={[
+          { label: "Mark Attendance Manually", icon: Plus, onClick: () => setIsMarkModalOpen(true) },
+          { label: "Import PDF Marksheet", icon: FileText, onClick: () => setIsPdfModalOpen(true) },
+          { label: "Bulk Import (CSV)", icon: UploadCloud, onClick: () => setIsImportModalOpen(true) }
+        ]} 
+      />
     </div>
   );
 }

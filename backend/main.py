@@ -27,7 +27,7 @@ import auth
 # 1. Initialize the app EXACTLY ONCE
 app = FastAPI(title="EduTrack AI")
 
-# 2. Add your CORS Middleware immediately after initializing
+# 2. Add  CORS Middleware immediately after initializing
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -89,9 +89,20 @@ def add_student(student: StudentCreate, db: Session = Depends(get_db)):
 def students(db: Session = Depends(get_db)):
     return get_students(db)
 
+@app.delete("/students/{student_id}")
+def delete_student_record(student_id: int, db: Session = Depends(get_db)):
+    from crud import delete_student
+    return delete_student(db, student_id)
+
 @app.post("/attendance")
 def add_attendance(attendance: AttendanceCreate, db: Session = Depends(get_db)):
     return mark_attendance(db, attendance)
+
+@app.post("/attendance/bulk-mark")
+def add_bulk_attendance(payload: dict, db: Session = Depends(get_db)):
+    from crud import bulk_mark_attendance
+    records = payload.get("records", [])
+    return bulk_mark_attendance(db, records)
 
 @app.get("/attendance")
 def attendance_list(db: Session = Depends(get_db)):
@@ -124,28 +135,50 @@ async def bulk_upload_attendance(file: UploadFile = File(...), db: Session = Dep
     return process_bulk_attendance(db, decoded_contents)
 
 @app.post("/marks/bulk-upload")
-async def bulk_upload_marks(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def bulk_upload_marks(
+    file: UploadFile = File(...), 
+    subject: str = None, 
+    exam_type: str = None, 
+    db: Session = Depends(get_db)
+):
     if not (file.filename.endswith('.csv') or file.filename.endswith('.xlsx')):
         raise HTTPException(status_code=400, detail="Only CSV and XLSX files are supported.")
     
     contents = await file.read()
     
-    # 1. Extract Subject (e.g., "COA")
-    fallback_subject = file.filename.split('.')[0].split('_')[-1] if '_' in file.filename else "General"
-    
-    # 2. Extract Exam Type (T1, T2, T3, T4)
-    exam_type = "T1" # Default fallback
-    for part in file.filename.upper().replace('.XLSX','').replace('.CSV','').split('_'):
-        if part in ["T1", "T2", "T3", "T4"]:
-            exam_type = part
-            break
-            
+    filename_clean = file.filename.replace('.xlsx', '').replace('.XLSX', '').replace('.csv', '').replace('.CSV', '')
+
+    # 1. Determine Exam Type (T1, T2, T3, T4)
+    if not exam_type or exam_type.strip() in ["", "undefined", "null"]:
+        exam_type = "T1" # Default fallback
+        for part in re.split(r'[_ \-]', filename_clean.upper()):
+            if part in ["T1", "T2", "T3", "T4", "MID", "END"]:
+                exam_type = part
+                break
+
+    # 2. Determine Subject Name accurately
+    if not subject or subject.strip() in ["", "undefined", "null"]:
+        parts = [p.strip() for p in re.split(r'[_ \-]', filename_clean) if p.strip()]
+        ignore_words = {
+            "T1", "T2", "T3", "T4", "MARKS", "MARKSHEET", "SCORES", "SY1", "SY2", "SY3", 
+            "TY", "BTECH", "BATCH", "A", "B", "C", "D", "FINAL", "MID", "SEM", "SEM1", 
+            "SEM2", "SEM3", "SEM4", "SEM5", "SEM6", "SEM7", "SEM8", "EXAM", "RESULT", "COMPILED"
+        }
+        subject_parts = [p for p in parts if p.upper() not in ignore_words and not p.isdigit()]
+        
+        if subject_parts:
+            # Preserve all-caps acronyms like COA, DBMS, OS or Title Case names
+            processed_parts = [p.upper() if len(p) <= 4 and p.isalpha() else p.capitalize() for p in subject_parts]
+            subject = " ".join(processed_parts)
+        else:
+            subject = "General"
+
     if file.filename.endswith('.xlsx'):
         from crud import process_bulk_marks_excel
-        return process_bulk_marks_excel(db, contents, fallback_subject, exam_type)
+        return process_bulk_marks_excel(db, contents, subject, exam_type)
     else:
         from crud import process_bulk_marks
-        return process_bulk_marks(db, contents.decode('utf-8'), fallback_subject, exam_type)
+        return process_bulk_marks(db, contents.decode('utf-8'), subject, exam_type)
 
 
 # ==========================================
@@ -262,3 +295,19 @@ async def bulk_upload_attendance_pdf(file: UploadFile = File(...), subject: str 
     contents = await file.read()
     from crud import process_bulk_attendance_pdf
     return process_bulk_attendance_pdf(db, contents, subject)
+
+@app.post("/analytics/send-alert/{student_id}")
+def send_intervention_alert(student_id: int, db: Session = Depends(get_db)):
+    from crud import send_student_intervention_alert
+    return send_student_intervention_alert(db, student_id)
+
+@app.get("/analytics/subject-heatmap")
+def get_subject_heatmap(db: Session = Depends(get_db)):
+    from crud import get_subject_difficulty_analytics
+    return get_subject_difficulty_analytics(db)
+
+@app.get("/analytics/ai-insights/{student_id}")
+def get_student_ai_insights(student_id: int, db: Session = Depends(get_db)):
+    from crud import generate_student_gemini_insights
+    return generate_student_gemini_insights(db, student_id)
+

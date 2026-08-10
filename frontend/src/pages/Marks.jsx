@@ -48,8 +48,35 @@ export default function Marks() {
   const [selectedStudentForAnalysis, setSelectedStudentForAnalysis] = useState('');
   
   const [csvFile, setCsvFile] = useState(null);
+  const [uploadSubject, setUploadSubject] = useState('');
+  const [uploadExamType, setUploadExamType] = useState('T1');
   const [isUploading, setIsUploading] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
+  const handleFileSelect = (file) => {
+    setCsvFile(file);
+    if (!file) return;
+    const nameClean = file.name.replace(/\.[^/.]+$/, "");
+    
+    // 1. Detect exam type
+    let detectedExam = "T1";
+    const upper = nameClean.toUpperCase();
+    ["T1", "T2", "T3", "T4", "MID", "END"].forEach(e => {
+      if (upper.includes(e)) detectedExam = e;
+    });
+    setUploadExamType(detectedExam);
+
+    // 2. Detect subject name
+    const parts = nameClean.split(/[_ \-]/).filter(Boolean);
+    const ignore = new Set(["T1","T2","T3","T4","MARKS","MARKSHEET","SCORES","SY1","SY2","SY3","TY","BTECH","BATCH","A","B","C","D","FINAL","MID","SEM","SEM1","SEM2","SEM3","SEM4","SEM5","SEM6","SEM7","SEM8","EXAM","RESULT"]);
+    const subjectParts = parts.filter(p => !ignore.has(p.toUpperCase()) && isNaN(p));
+    if (subjectParts.length > 0) {
+      const formatted = subjectParts.map(p => p.length <= 4 && /^[a-zA-Z]+$/.test(p) ? p.toUpperCase() : p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(" ");
+      setUploadSubject(formatted);
+    } else {
+      setUploadSubject("");
+    }
+  };
 
   useEffect(() => {
     loadAllData();
@@ -385,30 +412,75 @@ export default function Marks() {
       {/* IMPORT EXCEL MODAL */}
       {isImportModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
-          <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-[#0f172a] border border-white/10 rounded-3xl w-full max-w-md p-6 shadow-2xl relative">
-            <button onClick={() => { setIsImportModalOpen(false); setCsvFile(null); }} className="absolute top-6 right-6 text-slate-400 hover:text-white"><X size={20}/></button>
-            <h2 className="text-xl font-bold text-white mb-2">Import Subject Marksheet</h2>
-            <p className="text-xs text-slate-400 mb-6">Upload file. Ensure filename includes T1, T2, T3, or T4 (e.g. SY2_MARKSHEET_..._T3_COA.xlsx) to populate the correct columns.</p>
+          <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-[#0f172a] border border-white/10 rounded-3xl w-full max-w-md p-6 shadow-2xl relative space-y-4">
+            <button onClick={() => { setIsImportModalOpen(false); setCsvFile(null); }} className="absolute top-6 right-6 text-slate-400 hover:text-white cursor-pointer"><X size={20}/></button>
             
-            <div className="border-2 border-dashed border-blue-500/30 rounded-2xl p-8 text-center bg-blue-500/5 relative mb-6">
-              <input type="file" accept=".csv, .xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" onChange={(e) => setCsvFile(e.target.files[0])} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-              <UploadCloud size={40} className="mx-auto text-blue-400 mb-3" />
-              <p className="text-sm text-white font-medium">{csvFile ? csvFile.name : "Select or Drop .xlsx / .csv File"}</p>
+            <div>
+              <h2 className="text-xl font-bold text-white mb-1">Import Subject Marksheet</h2>
+              <p className="text-xs text-slate-400">Select file. Subject & Exam columns will be created automatically.</p>
+            </div>
+            
+            <div className="border-2 border-dashed border-blue-500/30 rounded-2xl p-6 text-center bg-blue-500/5 relative">
+              <input 
+                type="file" 
+                accept=".csv, .xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" 
+                onChange={(e) => handleFileSelect(e.target.files[0])} 
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+              />
+              <UploadCloud size={36} className="mx-auto text-blue-400 mb-2" />
+              <p className="text-xs text-white font-medium truncate px-2">{csvFile ? csvFile.name : "Select or Drop .xlsx / .csv File"}</p>
             </div>
 
-            <button onClick={async () => {
+            {csvFile && (
+              <div className="space-y-3 bg-white/5 border border-white/10 p-4 rounded-2xl">
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Subject Name (Column Label)</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. COA, DBMS, Maths, OS..." 
+                    value={uploadSubject} 
+                    onChange={(e) => setUploadSubject(e.target.value)} 
+                    className="w-full bg-[#1e293b] border border-white/10 text-xs text-white rounded-xl px-3 py-2 outline-none focus:border-cyan-500" 
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Exam Type</label>
+                  <select 
+                    value={uploadExamType} 
+                    onChange={(e) => setUploadExamType(e.target.value)} 
+                    className="w-full bg-[#1e293b] border border-white/10 text-xs text-white rounded-xl px-3 py-2 outline-none focus:border-cyan-500"
+                  >
+                    <option value="T1">T1 (Test 1 - Out of 25)</option>
+                    <option value="T2">T2 (Test 2 - Out of 25)</option>
+                    <option value="T3">T3 (Test 3 - Out of 25)</option>
+                    <option value="T4">T4 (Final Exam - Out of 50)</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            <button 
+              onClick={async () => {
                 if (!csvFile) return alert("Select a file first.");
                 setIsUploading(true);
                 try {
-                  const res = await uploadBulkMarks(csvFile);
+                  const res = await uploadBulkMarks(csvFile, uploadSubject, uploadExamType);
                   alert(res.message);
                   setIsImportModalOpen(false);
                   setCsvFile(null);
                   loadAllData();
-                } catch (err) { alert("Upload failed. Check console."); }
-                finally { setIsUploading(false); }
-              }} disabled={isUploading || !csvFile} className="w-full py-3 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-medium transition-all disabled:opacity-50">
-              {isUploading ? "Processing..." : "Upload & Save"}
+                } catch (err) { 
+                  console.error(err);
+                  alert("Upload failed. Check console."); 
+                } finally { 
+                  setIsUploading(false); 
+                }
+              }} 
+              disabled={isUploading || !csvFile} 
+              className="w-full py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-all disabled:opacity-50 cursor-pointer shadow-lg"
+            >
+              {isUploading ? "Processing Marksheet..." : "Upload & Save Subject Column"}
             </button>
           </motion.div>
         </div>

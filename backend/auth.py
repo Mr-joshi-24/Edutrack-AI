@@ -12,10 +12,7 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from models import User
 
-
-# ==========================================
 # Load Environment Variables
-# ==========================================
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
@@ -25,9 +22,7 @@ print("Google Client ID:", os.getenv("GOOGLE_CLIENT_ID"))
 print("GitHub Client ID:", os.getenv("GITHUB_CLIENT_ID"))
 
 
-# ==========================================
 # Router
-# ==========================================
 
 router = APIRouter()
 

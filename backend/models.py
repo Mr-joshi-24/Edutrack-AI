@@ -16,6 +16,9 @@ class Student(Base):
     email = Column(String, unique=True)
     attendance = Column(Float, default=0.0)
     marks = Column(Float, default=0.0)
+    intervention_status = Column(String, nullable=True, default="Pending")
+    last_alert_sent = Column(String, nullable=True)
+
 
 # UPDATED: Added 'subject' to track lecture-wise attendance
 class Attendance(Base):
@@ -47,5 +50,5 @@ class Marks(Base):
     
     student = relationship("Student")
 
-# ... (keep AcademicCalendar, Timetable classes exactly the same)
+
 

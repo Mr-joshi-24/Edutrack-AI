@@ -2,18 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BrainCircuit, Download, FileText, Search, Sparkles, CheckCircle2,
-  Users, TrendingUp, Award, AlertTriangle, FileSpreadsheet
+  Users, TrendingUp, Award, AlertTriangle, FileSpreadsheet, Calculator, Flame, Brain
 } from 'lucide-react';
 
 import StatCard from '../components/StatCard';
 import FloatingButton from '../components/FloatingButton';
+import CgpaSimulator from '../components/CgpaSimulator';
+import SubjectHeatmap from '../components/SubjectHeatmap';
+import MlPerformanceModal from '../components/MlPerformanceModal';
 import { 
   downloadCompiledMarksheet, fetchStudents, fetchMarks, 
   fetchAtRiskStudents, fetchMlPrediction 
 } from '../services/api';
 
 export default function Reports() {
-  const [activeTab, setActiveTab] = useState('export'); // 'export' or 'ml'
+  const [activeTab, setActiveTab] = useState('export'); // 'export', 'ml', 'simulator'
   const [downloading, setDownloading] = useState(false);
 
   // Real Data States
@@ -27,6 +30,10 @@ export default function Reports() {
   const [searchQuery, setSearchQuery] = useState('');
   const [predictionResult, setPredictionResult] = useState(null);
   const [mlLoading, setMlLoading] = useState(false);
+
+  const [insightsModalOpen, setInsightsModalOpen] = useState(false);
+  const [mlModalData, setMlModalData] = useState(null);
+
 
   useEffect(() => {
     const loadRealData = async () => {
@@ -111,20 +118,27 @@ export default function Reports() {
       </div>
 
       {/* TABS NAVIGATION */}
-      <div className="flex border-b border-white/10 gap-2 pb-1">
+      <div className="flex border-b border-white/10 gap-2 pb-1 overflow-x-auto">
         <button 
           onClick={() => setActiveTab('export')} 
-          className={`flex items-center gap-2 px-5 py-3 rounded-t-2xl text-sm font-medium transition-all relative ${activeTab === 'export' ? 'text-white bg-white/10 border-t border-x border-white/10' : 'text-slate-400 hover:bg-white/5'}`}
+          className={`flex items-center gap-2 px-5 py-3 rounded-t-2xl text-sm font-medium transition-all relative shrink-0 ${activeTab === 'export' ? 'text-white bg-white/10 border-t border-x border-white/10' : 'text-slate-400 hover:bg-white/5'}`}
         >
           <FileSpreadsheet size={16} className={activeTab === 'export' ? 'text-emerald-400' : ''} /> Master Marksheet Export
         </button>
         <button 
           onClick={() => setActiveTab('ml')} 
-          className={`flex items-center gap-2 px-5 py-3 rounded-t-2xl text-sm font-medium transition-all relative ${activeTab === 'ml' ? 'text-white bg-white/10 border-t border-x border-white/10' : 'text-slate-400 hover:bg-white/5'}`}
+          className={`flex items-center gap-2 px-5 py-3 rounded-t-2xl text-sm font-medium transition-all relative shrink-0 ${activeTab === 'ml' ? 'text-white bg-white/10 border-t border-x border-white/10' : 'text-slate-400 hover:bg-white/5'}`}
         >
           <BrainCircuit size={16} className={activeTab === 'ml' ? 'text-cyan-400' : ''} /> ML Predictive Analytics
         </button>
+        <button 
+          onClick={() => setActiveTab('simulator')} 
+          className={`flex items-center gap-2 px-5 py-3 rounded-t-2xl text-sm font-medium transition-all relative shrink-0 ${activeTab === 'simulator' ? 'text-white bg-white/10 border-t border-x border-white/10' : 'text-slate-400 hover:bg-white/5'}`}
+        >
+          <Calculator size={16} className={activeTab === 'simulator' ? 'text-amber-400' : ''} /> Target Simulator & Heatmap
+        </button>
       </div>
+
 
       {/* TAB CONTENT */}
       <AnimatePresence mode="wait">
@@ -219,15 +233,40 @@ export default function Reports() {
                   )}
                 </div>
 
-                <button 
-                  onClick={handleRunPrediction} 
-                  disabled={!selectedStudentId || mlLoading}
-                  className="w-full py-4 rounded-2xl bg-cyan-600 hover:bg-cyan-700 text-white font-medium transition-all shadow-lg shadow-cyan-900/20 flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  <Sparkles size={18} /> {mlLoading ? "Running scikit-learn Inference..." : "Execute ML Prediction"}
-                </button>
+                <div className="space-y-2">
+                  <button 
+                    onClick={handleRunPrediction} 
+                    disabled={!selectedStudentId || mlLoading}
+                    className="w-full py-3.5 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-medium transition-all shadow-lg shadow-cyan-900/20 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                  >
+                    <Sparkles size={18} /> {mlLoading ? "Running scikit-learn..." : "Execute ML Prediction"}
+                  </button>
+
+                  <button 
+                    onClick={async () => {
+                      if (!selectedStudentId) return alert("Please select a student first.");
+                      setInsightsModalOpen(true);
+                      setMlLoading(true);
+                      setMlModalData(null);
+                      try {
+                        const data = await fetchMlPrediction(selectedStudentId);
+                        setMlModalData(data);
+                      } catch (err) {
+                        alert("Failed to load ML prediction data");
+                      } finally {
+                        setMlLoading(false);
+                      }
+                    }}
+                    disabled={!selectedStudentId || mlLoading}
+                    className="w-full py-3.5 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                  >
+                    <BrainCircuit size={18} /> {mlLoading ? "Computing Scikit-Learn Model..." : "Open Full ML Diagnostic Profile"}
+                  </button>
+
+                </div>
               </div>
             </div>
+
 
             {/* RESULTS PANEL */}
             <div className="lg:col-span-2 space-y-6">
@@ -255,14 +294,14 @@ export default function Reports() {
                   <div className="bg-gradient-to-br from-cyan-950/40 to-blue-950/40 border border-cyan-500/30 rounded-3xl p-8 backdrop-blur-xl space-y-4 shadow-xl">
                     <div className="flex items-center gap-3">
                       <Sparkles className="text-cyan-400" size={24} />
-                      <h3 className="text-lg font-bold text-white">AI Intervention Plan for {predictionResult.student.name}</h3>
+                      <h3 className="text-lg font-bold text-white">ML Model Recommendation for {predictionResult.student?.name}</h3>
                     </div>
                     <p className="text-sm text-slate-300 leading-relaxed bg-white/5 p-5 rounded-2xl border border-white/5">
                       {predictionResult.recommendation}
                     </p>
                     <div className="flex items-center gap-6 pt-2 text-xs text-slate-400 font-mono">
-                      <span>Student ID: #{predictionResult.student.id}</span>
-                      <span>Attendance: {predictionResult.student.attendance}%</span>
+                      <span>Student ID: #{predictionResult.student?.id}</span>
+                      <span>Attendance: {predictionResult.student?.attendance}%</span>
                     </div>
                   </div>
                 </motion.div>
@@ -277,9 +316,25 @@ export default function Reports() {
           </motion.div>
         )}
 
+        {/* TAB 3: TARGET SIMULATOR & HEATMAP */}
+        {activeTab === 'simulator' && (
+          <motion.div key="simulator" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+            <CgpaSimulator students={students} marks={marks} />
+            <SubjectHeatmap />
+          </motion.div>
+        )}
+
       </AnimatePresence>
+
+      <MlPerformanceModal 
+        isOpen={insightsModalOpen}
+        onClose={() => setInsightsModalOpen(false)}
+        mlData={mlModalData}
+        loading={mlLoading}
+      />
 
       <FloatingButton />
     </div>
   );
 }
+

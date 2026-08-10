@@ -2,18 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Users, TrendingUp, Award, AlertTriangle, Activity, 
-  Search, CheckCircle2, X, Plus 
+  Search, CheckCircle2, X, Plus, BellRing 
 } from 'lucide-react';
 
 import StatCard from '../components/StatCard';
 import FloatingButton from '../components/FloatingButton';
-import { fetchStudents, fetchMarks, fetchAtRiskStudents } from '../services/api';
+import MlPerformanceModal from '../components/MlPerformanceModal';
+import { fetchStudents, fetchMarks, fetchAtRiskStudents, fetchMlPrediction } from '../services/api';
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState([]);
   const [marks, setMarks] = useState([]);
   const [atRiskList, setAtRiskList] = useState([]);
+
+  // ML Performance Profile Modal State
+  const [isMlModalOpen, setIsMlModalOpen] = useState(false);
+  const [selectedMlData, setSelectedMlData] = useState(null);
+  const [mlLoading, setMlLoading] = useState(false);
 
   // Multi-student selector for vertical comparison (up to 4 students)
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
@@ -102,6 +108,20 @@ export default function Dashboard() {
       attendance: s?.attendance || 0
     };
   });
+
+  const handleOpenMlProfile = async (studentId) => {
+    setIsMlModalOpen(true);
+    setMlLoading(true);
+    setSelectedMlData(null);
+    try {
+      const data = await fetchMlPrediction(studentId);
+      setSelectedMlData(data);
+    } catch (err) {
+      console.error("Failed to load ML profile", err);
+    } finally {
+      setMlLoading(false);
+    }
+  };
 
   return (
     <div className="w-full text-slate-200 space-y-8 animate-in fade-in duration-500 pb-10">
@@ -267,30 +287,51 @@ export default function Dashboard() {
             </div>
           ) : (
             atRiskList.slice(0, 6).map((riskItem, idx) => (
-              <div key={idx} className="bg-[#0a1020] border border-red-500/20 rounded-2xl p-5 space-y-3 hover:border-red-500/40 transition-all">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className="font-bold text-white text-base">{riskItem.name}</h4>
-                    <p className="text-xs font-mono text-slate-400">Student ID: #{riskItem.student_id}</p>
+              <div key={idx} className="bg-[#0a1020] border border-red-500/20 rounded-2xl p-5 space-y-3 hover:border-red-500/40 transition-all flex flex-col justify-between">
+                <div className="space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className="font-bold text-white text-base">{riskItem.name}</h4>
+                      <p className="text-xs font-mono text-slate-400">Student ID: #{riskItem.student_id}</p>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-red-500/20 text-red-400 border border-red-500/30">
+                      High Risk
+                    </span>
                   </div>
-                  <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-red-500/20 text-red-400 border border-red-500/30">
-                    High Risk
-                  </span>
+
+                  <div className="flex justify-between items-center pt-2 border-t border-white/5 text-xs">
+                    <span className="text-slate-400">Attendance Rate:</span>
+                    <span className="font-bold text-red-400">{riskItem.attendance ?? 0}%</span>
+                  </div>
+
+                  <div className="p-2.5 bg-red-500/5 rounded-xl border border-red-500/10 text-[11px] text-red-200/80">
+                    ⚠️ Attendance or score dip detected. Requires academic monitoring.
+                  </div>
                 </div>
 
-                <div className="flex justify-between items-center pt-2 border-t border-white/5 text-xs">
-                  <span className="text-slate-400">Attendance Rate:</span>
-                  <span className="font-bold text-red-400">{riskItem.attendance ?? 0}%</span>
+                {/* ML Performance Profile Trigger Button */}
+                <div className="pt-2">
+                  <button
+                    onClick={() => handleOpenMlProfile(riskItem.student_id)}
+                    className="w-full py-2.5 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <Activity size={14} className="text-cyan-400" /> View ML Diagnostic Profile
+                  </button>
                 </div>
 
-                <div className="p-2.5 bg-red-500/5 rounded-xl border border-red-500/10 text-[11px] text-red-200/80">
-                  ⚠️ Requires immediate faculty counseling and remedial tracking.
-                </div>
               </div>
             ))
           )}
         </div>
       </div>
+
+      {/* ML PERFORMANCE MODAL OVERLAY */}
+      <MlPerformanceModal
+        isOpen={isMlModalOpen}
+        onClose={() => setIsMlModalOpen(false)}
+        mlData={selectedMlData}
+        loading={mlLoading}
+      />
 
       <FloatingButton />
     </div>

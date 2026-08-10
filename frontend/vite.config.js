@@ -8,3 +8,4 @@ export default defineConfig({
     tailwindcss(),
   ],
 })
+// Forced Vite HMR update for Attendance modal changes

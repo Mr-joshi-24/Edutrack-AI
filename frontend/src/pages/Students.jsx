@@ -1,15 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Search, AlertTriangle, CheckCircle, Mail, BookOpen } from 'lucide-react';
-import { fetchStudents, fetchAtRiskStudents } from '../services/api';
+import { Users, Search, AlertTriangle, CheckCircle, Mail, BookOpen, Sparkles, Brain, Trash2 } from 'lucide-react';
+import { fetchStudents, fetchAtRiskStudents, fetchMlPrediction, deleteStudent } from '../services/api';
 import StatCard from '../components/StatCard';
 import FloatingButton from '../components/FloatingButton';
+import MlPerformanceModal from '../components/MlPerformanceModal';
 
 export default function Students() {
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState([]);
   const [riskStudents, setRiskStudents] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // ML Performance Profile Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedMlData, setSelectedMlData] = useState(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
 
   useEffect(() => {
     loadStudentData();
@@ -23,7 +29,6 @@ export default function Students() {
         fetchAtRiskStudents().catch(() => [])
       ]);
       
-      // Sort alphabetically by name for a clean layout
       setStudents((studentsData || []).sort((a, b) => a.name.localeCompare(b.name)));
       setRiskStudents(riskData || []);
     } catch (err) {
@@ -32,6 +37,31 @@ export default function Students() {
       setLoading(false);
     }
   };
+
+  const handleDeleteStudent = async (studentId, studentName) => {
+    if (!window.confirm(`Are you sure you want to delete student "${studentName}"?`)) return;
+    try {
+      await deleteStudent(studentId);
+      setStudents(prev => prev.filter(s => s.id !== studentId));
+    } catch (err) {
+      alert("Failed to delete student record");
+    }
+  };
+
+  const handleOpenInsights = async (studentId) => {
+    setIsModalOpen(true);
+    setInsightsLoading(true);
+    setSelectedMlData(null);
+    try {
+      const data = await fetchMlPrediction(studentId);
+      setSelectedMlData(data);
+    } catch (err) {
+      console.error("Failed to fetch ML prediction profile", err);
+    } finally {
+      setInsightsLoading(false);
+    }
+  };
+
 
   const totalStudents = students.length;
   const safeStudents = students.filter(s => (s.attendance || 0) >= 75).length;
@@ -83,14 +113,15 @@ export default function Students() {
                 <th className="px-6 py-4">Student Name</th>
                 <th className="px-6 py-4">Roll No</th>
                 <th className="px-6 py-4">Branch</th>
-                <th className="px-6 py-4 rounded-tr-xl">Attendance</th>
+                <th className="px-6 py-4">Attendance</th>
+                <th className="px-6 py-4 rounded-tr-xl text-right">AI Diagnostics</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
               {loading ? (
-                <tr><td colSpan="5" className="text-center py-12 text-slate-500">Loading student directory...</td></tr>
+                <tr><td colSpan="6" className="text-center py-12 text-slate-500">Loading student directory...</td></tr>
               ) : filteredStudents.length === 0 ? (
-                <tr><td colSpan="5" className="text-center py-12 text-slate-500">No student records found.</td></tr>
+                <tr><td colSpan="6" className="text-center py-12 text-slate-500">No student records found.</td></tr>
               ) : (
                 filteredStudents.map((student) => {
                   const initials = student.name ? student.name.substring(0, 2).toUpperCase() : "ST";
@@ -137,6 +168,25 @@ export default function Students() {
                           </span>
                         </div>
                       </td>
+
+                      {/* 6. Actions: ML Profile & Delete */}
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button 
+                            onClick={() => handleOpenInsights(student.id)}
+                            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/20 transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm hover:scale-105"
+                          >
+                            <Sparkles size={13} className="text-cyan-400" /> ML Profile
+                          </button>
+                          <button
+                            onClick={() => handleDeleteStudent(student.id, student.name)}
+                            title="Delete Student"
+                            className="p-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all cursor-pointer hover:scale-105"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })
@@ -146,7 +196,15 @@ export default function Students() {
         </div>
       </div>
 
+      {/* ML PERFORMANCE MODAL OVERLAY */}
+      <MlPerformanceModal 
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        mlData={selectedMlData}
+        loading={insightsLoading}
+      />
+
       <FloatingButton />
     </div>
   );
-}
+}

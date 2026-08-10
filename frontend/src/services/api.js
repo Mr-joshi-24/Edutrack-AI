@@ -1,9 +1,18 @@
 import axios from "axios";
 
-// 1. Initialize the Axios client with dynamic environment support (defaults to local FastAPI server)
+const getBaseURL = () => {
+
+  if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
+  if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
+    return "http://localhost:8000";
+  }
+  return "https://edutrack-ai-backend-oouq.onrender.com";
+};
+
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "https://edutrack-ai-backend-oouq.onrender.com",
+  baseURL: getBaseURL(),
 });
+
 
 // Optional token interceptor (uncomment if you add route protection later)
 // api.interceptors.request.use((config) => {
@@ -39,6 +48,11 @@ export const fetchStudents = async () => {
   return response.data;
 };
 
+export const deleteStudent = async (studentId) => {
+  const response = await api.delete(`/students/${studentId}`);
+  return response.data;
+};
+
 export const fetchAttendance = async () => {
   const response = await api.get('/attendance');
   return response.data;
@@ -51,6 +65,11 @@ export const fetchAtRiskStudents = async () => {
 
 export const submitAttendance = async (attendanceData) => {
   const response = await api.post('/attendance', attendanceData);
+  return response.data;
+};
+
+export const submitBulkAttendance = async (records) => {
+  const response = await api.post('/attendance/bulk-mark', { records });
   return response.data;
 };
 
@@ -98,10 +117,14 @@ export const uploadBulkAttendance = async (file) => {
   return response.data;
 };
 
-export const uploadBulkMarks = async (file) => {
+export const uploadBulkMarks = async (file, subject = "", examType = "") => {
   const formData = new FormData();
   formData.append('file', file);
-  const response = await api.post('/marks/bulk-upload', formData, {
+  const params = new URLSearchParams();
+  if (subject) params.append('subject', subject);
+  if (examType) params.append('exam_type', examType);
+  const queryString = params.toString() ? `?${params.toString()}` : '';
+  const response = await api.post(`/marks/bulk-upload${queryString}`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   });
   return response.data;
@@ -133,4 +156,19 @@ export const uploadAttendancePdf = async (file, subject = "General") => {
   return response.data;
 };
 
+export const sendInterventionAlert = async (studentId) => {
+  return { message: "Alert processed", student_id: studentId };
+};
+
+export const fetchSubjectHeatmap = async () => {
+  const response = await api.get('/analytics/subject-heatmap');
+  return response.data;
+};
+
+export const fetchStudentAiInsights = async (studentId) => {
+  const response = await api.get(`/analytics/ml-predict/${studentId}`);
+  return response.data;
+};
+
 export default api;
+
